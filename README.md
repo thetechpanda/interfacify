@@ -4,7 +4,7 @@
 
 # interfacify
 
-![Test](https://github.com/thetechpanda/interfacify/actions/workflows/go.yml/badge.svg)
+[![Test](https://github.com/thetechpanda/interfacify/actions/workflows/go.yaml/badge.svg?branch=main)](https://github.com/thetechpanda/interfacify/actions/workflows/go.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/thetechpanda/interfacify)](https://goreportcard.com/report/github.com/thetechpanda/interfacify)
 [![Go Reference](https://pkg.go.dev/badge/github.com/thetechpanda/interfacify.svg)](https://pkg.go.dev/github.com/thetechpanda/interfacify)
 [![Release](https://img.shields.io/github/release/thetechpanda/interfacify.svg?style=flat-square)](https://github.com/thetechpanda/interfacify/releases)
