@@ -1,0 +1,21 @@
+package examples
+
+// PrefixASuffix is an interface matching example.com/interfacify-basic/examples.A
+//
+// A handles A and C flags lookup
+type PrefixASuffix interface {
+	// HasA true if A is true
+	HasA() bool
+	// HasC true if C is true
+	HasC() bool
+}
+
+// PrefixBSuffix is an interface matching example.com/interfacify-basic/examples.B
+//
+// B handles B and C flags lookup
+type PrefixBSuffix interface {
+	// HasB true if B is true
+	HasB() bool
+	// HasC true if C is true
+	HasC() bool
+}

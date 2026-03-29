@@ -1,0 +1,13 @@
+package service
+
+import (
+	context "context"
+)
+
+// PrefixRunnerSuffix is an interface matching example.com/interfacify-imports/service.Runner
+//
+// Runner runs tasks.
+type PrefixRunnerSuffix interface {
+	// Run handles a task.
+	Run(context.Context, string) error
+}

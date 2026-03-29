@@ -1,0 +1,13 @@
+package nested
+
+// PrefixTopSuffix is an interface matching example.com/interfacify-nested/nested.Top
+//
+// Top exposes top behavior.
+type PrefixTopSuffix interface {
+	// TopMethod reports top behavior.
+	TopMethod() bool
+	// MiddleMethod reports middle behavior.
+	MiddleMethod() bool
+	// LeafMethod reports leaf behavior.
+	LeafMethod() bool
+}

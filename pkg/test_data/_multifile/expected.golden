@@ -1,0 +1,18 @@
+package service
+
+import (
+	context "context"
+	url "net/url"
+)
+
+// PrefixWorkerSuffix is an interface matching example.com/interfacify-multifile/service.Worker
+//
+// Worker combines direct and embedded behavior.
+type PrefixWorkerSuffix interface {
+	// Execute runs the query.
+	Execute(context.Context, Query) ([]*url.URL, error)
+	// BaseURL returns the shared base URL.
+	BaseURL() *url.URL
+	// Stream emits remote resources.
+	Stream(...Query) <-chan *url.URL
+}
