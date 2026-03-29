@@ -1,0 +1,23 @@
+package service
+
+import (
+	context "context"
+)
+
+// PrefixReaderSuffix is an interface matching example.com/interfacify-generics/service.Reader
+//
+// Reader exposes typed reads.
+type PrefixReaderSuffix[T any] interface {
+	// Read loads one typed result.
+	Read(context.Context) (Result[T], error)
+}
+
+// PrefixLoaderSuffix is an interface matching example.com/interfacify-generics/service.Loader
+//
+// Loader combines direct and embedded generic behavior.
+type PrefixLoaderSuffix[T any] interface {
+	// Load stores one typed result.
+	Load(context.Context, Result[T]) error
+	// Read loads one typed result.
+	Read(context.Context) (Result[T], error)
+}

@@ -1,0 +1,25 @@
+package service
+
+// PrefixPairSuffix is an interface matching example.com/interfacify-generics-multi/service.Pair
+//
+// Pair exposes typed key/value access.
+type PrefixPairSuffix[K, V any] interface {
+	// Key returns the key.
+	Key() K
+	// Value returns the value.
+	Value() V
+}
+
+// PrefixEntrySuffix is an interface matching example.com/interfacify-generics-multi/service.Entry
+//
+// Entry stores direct and embedded key/value behavior.
+type PrefixEntrySuffix[K, V any] interface {
+	// Put stores a key and value.
+	Put(K, V) error
+	// Snapshot returns the current pair.
+	Snapshot() Pair[K, V]
+	// Key returns the key.
+	Key() K
+	// Value returns the value.
+	Value() V
+}

@@ -147,7 +147,8 @@ func renderInterface(
 	includeEmbedded bool,
 	prefix, suffix string,
 ) (string, map[string]string, error) {
-	if _, ok := sourcePkg.typeSpecs[target.typeName]; !ok {
+	typeSpec := sourcePkg.typeSpecs[target.typeName]
+	if typeSpec == nil {
 		return "", nil, fmt.Errorf("type %q not found in package %q", target.typeName, target.importPath)
 	}
 
@@ -156,6 +157,10 @@ func renderInterface(
 		outputPkg:   outputPkg,
 		pkg:         sourcePkg,
 		usedImports: map[string]string{},
+	}
+	typeParams, err := renderer.renderTypeParams(typeSpec.TypeParams)
+	if err != nil {
+		return "", nil, fmt.Errorf("rendering type parameters for %s: %w", target.typeName, err)
 	}
 
 	var block strings.Builder
@@ -169,6 +174,7 @@ func renderInterface(
 
 	block.WriteString("type ")
 	block.WriteString(ifaceName)
+	block.WriteString(typeParams)
 	block.WriteString(" interface {\n")
 	for _, method := range methods {
 		if doc := sourcePkg.docForMethod(method); doc != "" {

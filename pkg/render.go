@@ -50,6 +50,39 @@ func (renderer *signatureRenderer) renderMethod(method methodDecl) (string, erro
 	return output.String(), nil
 }
 
+// renderTypeParams renders a generic type parameter list for one type declaration.
+func (renderer *signatureRenderer) renderTypeParams(list *ast.FieldList) (string, error) {
+	if list == nil || len(list.List) == 0 {
+		return "", nil
+	}
+
+	parts := make([]string, 0, len(list.List))
+	for _, field := range list.List {
+		constraint, err := renderer.renderExpr(field.Type)
+		if err != nil {
+			return "", err
+		}
+
+		names := make([]string, 0, len(field.Names))
+		for _, name := range field.Names {
+			names = append(names, name.Name)
+		}
+		if len(names) == 0 {
+			parts = append(parts, constraint)
+			continue
+		}
+
+		part := strings.Join(names, ", ")
+		if constraint != "" {
+			part += " " + constraint
+		}
+
+		parts = append(parts, part)
+	}
+
+	return "[" + strings.Join(parts, ", ") + "]", nil
+}
+
 // renderFieldList renders an AST field list into a comma-separated type list.
 func (renderer *signatureRenderer) renderFieldList(list *ast.FieldList) (string, int, error) {
 	if list == nil || len(list.List) == 0 {

@@ -4,22 +4,40 @@
 name: Go
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "develop" ]
+  push:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-
-  build:
+  test:
+    name: Go Test
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - name: Check out repository
+        uses: actions/checkout@v6
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.26'
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
 
-    - name: Test
-      run: go test -v ./...
+      - name: Run go test
+        run: make test
+
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          if [ ! -f coverage.out ]; then
+            echo "No coverage report was generated."
+            exit 1
+          fi          
+          echo -n "Coverage: "
+          go tool cover -func=coverage.out  | grep total: | awk '{ print $3 }'
