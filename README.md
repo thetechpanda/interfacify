@@ -4,6 +4,12 @@
 
 # interfacify
 
+![Test](https://github.com/thetechpanda/interfacify/actions/workflows/go.yml/badge.svg)
+[![Go Report Card](https://goreportcard.com/badge/github.com/thetechpanda/interfacify)](https://goreportcard.com/report/github.com/thetechpanda/interfacify)
+[![Go Reference](https://pkg.go.dev/badge/github.com/thetechpanda/interfacify.svg)](https://pkg.go.dev/github.com/thetechpanda/interfacify)
+[![Release](https://img.shields.io/github/release/thetechpanda/interfacify.svg?style=flat-square)](https://github.com/thetechpanda/interfacify/releases)
+![Dependencies](https://img.shields.io/badge/Go_Dependencies-_None_-green.svg)
+
 `interfacify` generates Go interfaces from one or more concrete types.
 
 It resolves packages from one or more Go module or workspace paths, collects exported methods for each requested type, preserves doc comments when it can resolve them from source, and writes formatted Go code to `-ofile`.
