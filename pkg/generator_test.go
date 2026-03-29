@@ -83,6 +83,26 @@ func TestGenerate(t *testing.T) {
 			prefix:   "Prefix",
 			suffix:   "Suffix",
 		},
+		{
+			name:     "generic struct and interface types",
+			fixture:  "_generics",
+			structs:  "example.com/interfacify-generics/service.Reader,example.com/interfacify-generics/service.Loader",
+			pkg:      "service",
+			deep:     true,
+			expected: "expected.golden",
+			prefix:   "Prefix",
+			suffix:   "Suffix",
+		},
+		{
+			name:     "multiple type parameters on struct and interface",
+			fixture:  "_generics_multi",
+			structs:  "example.com/interfacify-generics-multi/service.Pair,example.com/interfacify-generics-multi/service.Entry",
+			pkg:      "service",
+			deep:     true,
+			expected: "expected.golden",
+			prefix:   "Prefix",
+			suffix:   "Suffix",
+		},
 	}
 
 	for _, test := range tests {

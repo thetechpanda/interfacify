@@ -24,6 +24,16 @@ Install the command directly:
 go install github.com/thetechpanda/interfacify@latest
 ```
 
+Or add it as a Go tool dependency in the module where you want to use it:
+
+```bash
+go get -tool github.com/thetechpanda/interfacify@latest
+go tool interfacify -help
+```
+
+That pins the tool in your `go.mod`, so the project can run a consistent version with `go tool interfacify`.
+This repository currently requires Go `1.26.1`, so the `go tool` flow assumes your module is already using Go `1.26.1+` or can auto-switch toolchains.
+
 Or build it from this repository:
 
 ```bash
@@ -48,17 +58,29 @@ interfacify \
   -deep=true
 ```
 
+The same invocation works through `go tool` once the tool is added to your module:
+
+```bash
+go tool interfacify \
+  -paths . \
+  -structs example.com/project/examples.A,example.com/project/examples.B \
+  -ofile generated.go \
+  -pkg examples \
+  -suffix Interface \
+  -deep=true
+```
+
 ## Flags
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `-paths` | `.` | Comma-separated list of module or workspace paths to search. The first matching path wins for each import path. |
-| `-structs` | `""` | Comma-separated list of fully-qualified type names to convert. |
-| `-ofile` | `generated.go` | Output file path for the generated Go source. |
-| `-pkg` | `output` | Package name to use in the generated file. |
-| `-prefix` | `""` | Optional prefix for generated interface names. |
-| `-suffix` | `""` | Optional suffix for generated interface names. |
-| `-deep` | `true` | Include exported methods promoted through embedded local structs or interfaces. |
+| Flag       | Default        | Description                                                                                                     |
+| ---------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `-paths`   | `.`            | Comma-separated list of module or workspace paths to search. The first matching path wins for each import path. |
+| `-structs` | `""`           | Comma-separated list of fully-qualified type names to convert.                                                  |
+| `-ofile`   | `generated.go` | Output file path for the generated Go source.                                                                   |
+| `-pkg`     | `output`       | Package name to use in the generated file.                                                                      |
+| `-prefix`  | `""`           | Optional prefix for generated interface names.                                                                  |
+| `-suffix`  | `""`           | Optional suffix for generated interface names.                                                                  |
+| `-deep`    | `true`         | Include exported methods promoted through embedded local structs or interfaces.                                 |
 
 When generating into the same package as the source types, use `-prefix` or `-suffix` to avoid redeclaring the original type names.
 
@@ -187,6 +209,38 @@ go run . \
 ```
 
 This matches [pkg/test_data/_multifile/expected.golden](pkg/test_data/_multifile/expected.golden).
+
+### Generic interface and struct
+
+Generate interfaces from the `_generics` fixture. The generated interfaces preserve source type parameters:
+
+```bash
+go run . \
+  -paths ./pkg/test_data/_generics \
+  -structs example.com/interfacify-generics/service.Reader,example.com/interfacify-generics/service.Loader \
+  -ofile ./tmp/generics.go \
+  -pkg service \
+  -prefix Prefix \
+  -suffix Suffix
+```
+
+This matches [pkg/test_data/_generics/expected.golden](pkg/test_data/_generics/expected.golden).
+
+### Multiple type parameters
+
+Generate interfaces from the `_generics_multi` fixture to preserve multiple type parameters and promoted methods from an embedded generic interface:
+
+```bash
+go run . \
+  -paths ./pkg/test_data/_generics_multi \
+  -structs example.com/interfacify-generics-multi/service.Pair,example.com/interfacify-generics-multi/service.Entry \
+  -ofile ./tmp/generics_multi.go \
+  -pkg service \
+  -prefix Prefix \
+  -suffix Suffix
+```
+
+This matches [pkg/test_data/_generics_multi/expected.golden](pkg/test_data/_generics_multi/expected.golden).
 
 ### Multiple lookup paths
 
