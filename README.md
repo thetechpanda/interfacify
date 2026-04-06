@@ -97,7 +97,8 @@ Generate two interfaces from the `_basic` fixture, including exported methods pr
 ```bash
 go run . \
   -paths ./pkg/test_data/_basic \
-  -structs example.com/interfacify-basic/examples.A,example.com/interfacify-basic/examples.B \
+  -structs example.com/interfacify-basic/examples.A,\
+    example.com/interfacify-basic/examples.B \
   -ofile ./tmp/basic_deep.go \
   -pkg examples \
   -prefix Prefix \
@@ -219,7 +220,8 @@ Generate interfaces from the `_generics` fixture. The generated interfaces prese
 ```bash
 go run . \
   -paths ./pkg/test_data/_generics \
-  -structs example.com/interfacify-generics/service.Reader,example.com/interfacify-generics/service.Loader \
+  -structs example.com/interfacify-generics/service.Reader,\
+    example.com/interfacify-generics/service.Loader \
   -ofile ./tmp/generics.go \
   -pkg service \
   -prefix Prefix \
@@ -235,7 +237,8 @@ Generate interfaces from the `_generics_multi` fixture to preserve multiple type
 ```bash
 go run . \
   -paths ./pkg/test_data/_generics_multi \
-  -structs example.com/interfacify-generics-multi/service.Pair,example.com/interfacify-generics-multi/service.Entry \
+  -structs example.com/interfacify-generics-multi/service.Pair,\
+    example.com/interfacify-generics-multi/service.Entry \
   -ofile ./tmp/generics_multi.go \
   -pkg service \
   -prefix Prefix \
