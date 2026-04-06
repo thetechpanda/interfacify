@@ -54,7 +54,7 @@ func TestGenerate(t *testing.T) {
 			suffix:   "Suffix",
 		},
 		{
-			name:     "different output package with imported types",
+			name:     "different output package qualifies exported local types",
 			fixture:  "_different_pkg",
 			structs:  "example.com/interfacify-differentpkg/service.Runner",
 			pkg:      "generated",
@@ -98,6 +98,16 @@ func TestGenerate(t *testing.T) {
 			fixture:  "_generics_multi",
 			structs:  "example.com/interfacify-generics-multi/service.Pair,example.com/interfacify-generics-multi/service.Entry",
 			pkg:      "service",
+			deep:     true,
+			expected: "expected.golden",
+			prefix:   "Prefix",
+			suffix:   "Suffix",
+		},
+		{
+			name:     "different output package qualifies exported local and foreign types",
+			fixture:  "_different_pkg_nested",
+			structs:  "example.com/interfacify-differentpkgnested/service.Runner",
+			pkg:      "generated",
 			deep:     true,
 			expected: "expected.golden",
 			prefix:   "Prefix",
@@ -152,7 +162,7 @@ func TestGenerateErrors(t *testing.T) {
 		suffix  string
 	}{
 		{
-			name:    "different output package with local types in signature",
+			name:    "different output package with unexported local types in signature",
 			fixture: "_pkg_mismatch",
 			structs: "example.com/interfacify-pkgmismatch/service.Runner",
 			pkg:     "generated",
