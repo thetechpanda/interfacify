@@ -72,15 +72,15 @@ go tool interfacify \
 
 ## Flags
 
-| Flag       | Default        | Description                                                                                                     |
-| ---------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
+| Flag       | Default        | Description                                                                                                        |
+| ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
 | `-paths`   | `.`            | Comma-separated list of module or workspace paths to search.<br>The first matching path wins for each import path. |
-| `-structs` | `""`           | Comma-separated list of fully-qualified type names to convert.                                                  |
-| `-ofile`   | `generated.go` | Output file path for the generated Go source.                                                                   |
-| `-pkg`     | `output`       | Package name to use in the generated file.                                                                      |
-| `-prefix`  | `""`           | Optional prefix for generated interface names.                                                                  |
-| `-suffix`  | `""`           | Optional suffix for generated interface names.                                                                  |
-| `-deep`    | `true`         | Include exported methods promoted through embedded local structs<br>or interfaces.                                 |
+| `-structs` | `""`           | Comma-separated list of fully-qualified type names to convert.                                                     |
+| `-ofile`   | `generated.go` | Output file path for the generated Go source.                                                                      |
+| `-pkg`     | `output`       | Package name to use in the generated file.                                                                         |
+| `-prefix`  | `""`           | Optional prefix for generated interface names.                                                                     |
+| `-suffix`  | `""`           | Optional suffix for generated interface names.                                                                     |
+| `-deep`    | `true`         | Include exported methods promoted through embedded local<br>structs or interfaces.                                 |
 
 When generating into the same package as the source types, use `-prefix` or `-suffix` to avoid redeclaring the original type names.
 
