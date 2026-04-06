@@ -23,7 +23,7 @@ type target struct {
 
 // Generate loads the requested types and renders the output file.
 func Generate(cfg Config) ([]byte, error) {
-	lookupPaths, err := cfg.resolveLookupPaths()
+	lookupPaths, err := decoders.ResolveLookupPaths(cfg.PathsList)
 	if err != nil {
 		return nil, err
 	}

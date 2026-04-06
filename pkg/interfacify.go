@@ -3,8 +3,6 @@ package interfacify
 import (
 	"fmt"
 	"os"
-
-	decoders "github.com/thetechpanda/interfacify/pkg/decoders"
 )
 
 // Config stores the CLI options used to generate interfaces.
@@ -24,11 +22,6 @@ type Config struct {
 	Prefix string
 	// Suffix specify generated interfaces suffix
 	Suffix string
-}
-
-// resolveLookupPaths returns the directories used for package resolution.
-func (cfg Config) resolveLookupPaths() ([]string, error) {
-	return decoders.ResolveLookupPaths(cfg.PathsList)
 }
 
 // Run generates interfaces and writes the result to disk.
