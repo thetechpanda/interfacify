@@ -244,6 +244,47 @@ func TestRunWritesOutput(t *testing.T) {
 	}
 }
 
+// TestRunErrors verifies that Run wraps generation and write failures.
+func TestRunErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("write output failure", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := interfacify.Config{
+			PathsList:       fixturePath("_basic"),
+			StructsList:     "example.com/interfacify-basic/examples.A",
+			OutputFile:      filepath.Join(t.TempDir(), "missing", "generated.go"),
+			OutputPkg:       "examples",
+			IncludeEmbedded: false,
+			Prefix:          "Prefix",
+			Suffix:          "Suffix",
+		}
+
+		err := interfacify.Run(cfg)
+		if err == nil || !strings.Contains(err.Error(), "write output") {
+			t.Fatalf("Run(write failure) = %v, want wrapped write output error", err)
+		}
+	})
+
+	t.Run("generate failure", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := interfacify.Config{
+			PathsList:       fixturePath("_basic"),
+			StructsList:     "example.com/interfacify-basic/examples.DoesNotExist",
+			OutputFile:      filepath.Join(t.TempDir(), "generated.go"),
+			OutputPkg:       "examples",
+			IncludeEmbedded: false,
+		}
+
+		err := interfacify.Run(cfg)
+		if err == nil || !strings.Contains(err.Error(), "generate") {
+			t.Fatalf("Run(generate failure) = %v, want wrapped generate error", err)
+		}
+	})
+}
+
 // TestGenerateSearchesAcrossPaths verifies that lookup falls back across configured paths.
 func TestGenerateSearchesAcrossPaths(t *testing.T) {
 	t.Parallel()
