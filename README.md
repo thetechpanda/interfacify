@@ -164,7 +164,7 @@ This matches [pkg/test_data/_imports/expected.golden](pkg/test_data/_imports/exp
 
 ### Generate into a different package
 
-If a method signature only uses imported types, you can emit the interface into another package:
+If a method signature uses exported types, `interfacify` qualifies source-package types so you can emit the interface into another package:
 
 ```bash
 go run . \
@@ -263,7 +263,8 @@ Even though `_imports` is listed first, the generator falls through to `_basic` 
 
 - Use `-paths` to tell the generator which local modules or workspaces it may search. The default is the current directory.
 - `-structs` entries must be fully-qualified import paths followed by the type name.
-- If a method signature refers to local package types, the generated file must stay in the same package as the source.
+- Exported source-package types are qualified with the source package import when generating into a different package.
+- If a method signature refers to unexported local package types, the generated file must stay in the same package as the source.
 - Embedded method promotion only follows local embedded structs and interfaces.
 
 ## Tests

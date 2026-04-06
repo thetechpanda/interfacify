@@ -1,0 +1,19 @@
+package generated
+
+import (
+	context "context"
+	nested "example.com/interfacify-differentpkgnested/nested"
+	service "example.com/interfacify-differentpkgnested/service"
+)
+
+// PrefixRunnerSuffix is an interface matching example.com/interfacify-differentpkgnested/service.Runner
+//
+// Runner runs tasks.
+type PrefixRunnerSuffix interface {
+	// Run handles a task.
+	Run(context.Context, string) error
+	// GetNested returns a nested struct from a foreign package
+	GetNested() nested.Nested
+	// GetLocal returns a local struct from the current package
+	GetLocal() service.Nested
+}
