@@ -51,7 +51,8 @@ go run . -help
 ```bash
 interfacify \
   -paths . \
-  -structs example.com/project/examples.A,example.com/project/examples.B \
+  -structs example.com/project/examples.A,\
+    example.com/project/examples.B \
   -ofile generated.go \
   -pkg examples \
   -suffix Interface \
@@ -63,7 +64,8 @@ The same invocation works through `go tool` once the tool is added to your modul
 ```bash
 go tool interfacify \
   -paths . \
-  -structs example.com/project/examples.A,example.com/project/examples.B \
+  -structs example.com/project/examples.A,\
+    example.com/project/examples.B \
   -ofile generated.go \
   -pkg examples \
   -suffix Interface \
@@ -72,15 +74,15 @@ go tool interfacify \
 
 ## Flags
 
-| Flag       | Default        | Description                                                                                                     |
-| ---------- | -------------- | --------------------------------------------------------------------------------------------------------------- |
-| `-paths`   | `.`            | Comma-separated list of module or workspace paths to search. The first matching path wins for each import path. |
-| `-structs` | `""`           | Comma-separated list of fully-qualified type names to convert.                                                  |
-| `-ofile`   | `generated.go` | Output file path for the generated Go source.                                                                   |
-| `-pkg`     | `output`       | Package name to use in the generated file.                                                                      |
-| `-prefix`  | `""`           | Optional prefix for generated interface names.                                                                  |
-| `-suffix`  | `""`           | Optional suffix for generated interface names.                                                                  |
-| `-deep`    | `true`         | Include exported methods promoted through embedded local structs or interfaces.                                 |
+| Flag       | Default        | Description                                                                                                        |
+| ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `-paths`   | `.`            | Comma-separated list of module or workspace paths to search.<br>The first matching path wins for each import path. |
+| `-structs` | `""`           | Comma-separated list of fully-qualified type names to convert.                                                     |
+| `-ofile`   | `generated.go` | Output file path for the generated Go source.                                                                      |
+| `-pkg`     | `output`       | Package name to use in the generated file.                                                                         |
+| `-prefix`  | `""`           | Optional prefix for generated interface names.                                                                     |
+| `-suffix`  | `""`           | Optional suffix for generated interface names.                                                                     |
+| `-deep`    | `true`         | Include exported methods promoted through embedded local<br>structs or interfaces.                                 |
 
 When generating into the same package as the source types, use `-prefix` or `-suffix` to avoid redeclaring the original type names.
 
@@ -95,7 +97,8 @@ Generate two interfaces from the `_basic` fixture, including exported methods pr
 ```bash
 go run . \
   -paths ./pkg/test_data/_basic \
-  -structs example.com/interfacify-basic/examples.A,example.com/interfacify-basic/examples.B \
+  -structs example.com/interfacify-basic/examples.A,\
+    example.com/interfacify-basic/examples.B \
   -ofile ./tmp/basic_deep.go \
   -pkg examples \
   -prefix Prefix \
@@ -217,7 +220,8 @@ Generate interfaces from the `_generics` fixture. The generated interfaces prese
 ```bash
 go run . \
   -paths ./pkg/test_data/_generics \
-  -structs example.com/interfacify-generics/service.Reader,example.com/interfacify-generics/service.Loader \
+  -structs example.com/interfacify-generics/service.Reader,\
+    example.com/interfacify-generics/service.Loader \
   -ofile ./tmp/generics.go \
   -pkg service \
   -prefix Prefix \
@@ -233,7 +237,8 @@ Generate interfaces from the `_generics_multi` fixture to preserve multiple type
 ```bash
 go run . \
   -paths ./pkg/test_data/_generics_multi \
-  -structs example.com/interfacify-generics-multi/service.Pair,example.com/interfacify-generics-multi/service.Entry \
+  -structs example.com/interfacify-generics-multi/service.Pair,\
+    example.com/interfacify-generics-multi/service.Entry \
   -ofile ./tmp/generics_multi.go \
   -pkg service \
   -prefix Prefix \
