@@ -51,7 +51,8 @@ go run . -help
 ```bash
 interfacify \
   -paths . \
-  -structs example.com/project/examples.A,example.com/project/examples.B \
+  -structs example.com/project/examples.A,\
+    example.com/project/examples.B \
   -ofile generated.go \
   -pkg examples \
   -suffix Interface \
@@ -63,7 +64,8 @@ The same invocation works through `go tool` once the tool is added to your modul
 ```bash
 go tool interfacify \
   -paths . \
-  -structs example.com/project/examples.A,example.com/project/examples.B \
+  -structs example.com/project/examples.A,\
+    example.com/project/examples.B \
   -ofile generated.go \
   -pkg examples \
   -suffix Interface \
