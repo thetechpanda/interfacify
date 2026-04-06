@@ -2,11 +2,13 @@ package interfacify
 
 import (
 	"fmt"
-	"go/ast"
 	"go/format"
 	"sort"
 	"strconv"
 	"strings"
+
+	decoders "github.com/thetechpanda/interfacify/pkg/decoders"
+	encoders "github.com/thetechpanda/interfacify/pkg/encoders"
 )
 
 // target identifies one source type to convert into an interface.
@@ -26,7 +28,7 @@ func Generate(cfg Config) ([]byte, error) {
 		return nil, err
 	}
 
-	lookupRoots, err := buildLookupRoots(lookupPaths)
+	lookupRoots, err := decoders.BuildLookupRoots(lookupPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -165,11 +167,11 @@ func renderInterface(
 
 	var block strings.Builder
 	ifaceName := prefix + target.typeName + suffix
-	writeCommentLines(&block, fmt.Sprintf("%s is an interface matching %s", ifaceName, target.fullName), "")
+	encoders.WriteCommentLines(&block, fmt.Sprintf("%s is an interface matching %s", ifaceName, target.fullName), "")
 
 	if typeDoc := sourcePkg.typeDocs[target.typeName]; typeDoc != "" {
 		block.WriteString("//\n")
-		writeCommentLines(&block, typeDoc, "")
+		encoders.WriteCommentLines(&block, typeDoc, "")
 	}
 
 	block.WriteString("type ")
@@ -178,7 +180,7 @@ func renderInterface(
 	block.WriteString(" interface {\n")
 	for _, method := range methods {
 		if doc := sourcePkg.docForMethod(method); doc != "" {
-			writeCommentLines(&block, doc, "\t")
+			encoders.WriteCommentLines(&block, doc, "\t")
 		}
 
 		signature, err := renderer.renderMethod(method)
@@ -206,28 +208,4 @@ func mergeImports(dst, src map[string]string) error {
 	}
 
 	return nil
-}
-
-// commentText returns a trimmed comment body.
-func commentText(group *ast.CommentGroup) string {
-	if group == nil {
-		return ""
-	}
-
-	return strings.TrimSpace(group.Text())
-}
-
-// writeCommentLines writes text as line comments using the given indent.
-func writeCommentLines(output *strings.Builder, text, indent string) {
-	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
-		output.WriteString(indent)
-		if line == "" {
-			output.WriteString("//\n")
-			continue
-		}
-
-		output.WriteString("// ")
-		output.WriteString(line)
-		output.WriteString("\n")
-	}
 }

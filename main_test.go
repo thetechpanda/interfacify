@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"flag"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -104,5 +106,43 @@ func TestPrintUsage(t *testing.T) {
 
 	if strings.Contains(text, "-mod") {
 		t.Fatalf("printUsage() unexpectedly contains removed -mod flag:\n%s", text)
+	}
+}
+
+// TestMainWritesOutput verifies that main can run the happy path without exiting.
+func TestMainWritesOutput(t *testing.T) {
+	t.Parallel()
+
+	outputFile := filepath.Join(t.TempDir(), "generated.go")
+	oldArgs := os.Args
+	t.Cleanup(func() {
+		os.Args = oldArgs
+	})
+
+	os.Args = []string{
+		"interfacify",
+		"-paths", "./pkg/test_data/_basic",
+		"-structs", "example.com/interfacify-basic/examples.A",
+		"-ofile", outputFile,
+		"-pkg", "examples",
+		"-prefix", "Prefix",
+		"-suffix", "Suffix",
+		"-deep=false",
+	}
+
+	main()
+
+	got, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("os.ReadFile(output) error = %v", err)
+	}
+
+	want, err := os.ReadFile(filepath.Join("pkg", "test_data", "_basic", "expected_shallow.golden"))
+	if err != nil {
+		t.Fatalf("os.ReadFile(expected) error = %v", err)
+	}
+
+	if string(got) != string(want) {
+		t.Fatalf("main() wrote unexpected output\n\ngot:\n%s\n\nwant:\n%s", got, want)
 	}
 }

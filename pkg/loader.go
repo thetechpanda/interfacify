@@ -1,17 +1,18 @@
 package interfacify
 
 import (
-	"bufio"
 	"fmt"
 	"go/ast"
 	"go/build"
 	"go/doc"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	decoders "github.com/thetechpanda/interfacify/pkg/decoders"
+	encoders "github.com/thetechpanda/interfacify/pkg/encoders"
 )
 
 // packageCacheKey identifies one resolved package for a lookup path.
@@ -21,16 +22,10 @@ type packageCacheKey struct {
 }
 
 // lookupRoot stores one configured lookup path and the modules it exposes.
-type lookupRoot struct {
-	path    string
-	modules []moduleRoot
-}
+type lookupRoot = decoders.LookupRoot
 
 // moduleRoot stores one resolved module root available from a lookup path.
-type moduleRoot struct {
-	dir        string
-	modulePath string
-}
+type moduleRoot = decoders.ModuleRoot
 
 // packageInfo stores the source metadata needed to parse one package.
 type packageInfo struct {
@@ -181,9 +176,9 @@ func loadSourcePackage(lookupRoots []lookupRoot, importPath string, packageCache
 							continue
 						}
 
-						methodDoc := commentText(field.Doc)
+						methodDoc := encoders.CommentText(field.Doc)
 						if methodDoc == "" {
-							methodDoc = commentText(field.Comment)
+							methodDoc = encoders.CommentText(field.Comment)
 						}
 
 						for _, name := range field.Names {
@@ -215,7 +210,7 @@ func loadSourcePackage(lookupRoots []lookupRoot, importPath string, packageCache
 					continue
 				}
 
-				methodDoc := commentText(decl.Doc)
+				methodDoc := encoders.CommentText(decl.Doc)
 				sourcePkg.methods[recvName] = append(sourcePkg.methods[recvName], methodDecl{
 					name:    decl.Name.Name,
 					doc:     methodDoc,
@@ -232,216 +227,6 @@ func loadSourcePackage(lookupRoots []lookupRoot, importPath string, packageCache
 	return sourcePkg, nil
 }
 
-// buildLookupRoots resolves configured lookup paths into module roots.
-func buildLookupRoots(lookupPaths []string) ([]lookupRoot, error) {
-	roots := make([]lookupRoot, 0, len(lookupPaths))
-	for _, lookupPath := range lookupPaths {
-		root, err := buildLookupRoot(lookupPath)
-		if err != nil {
-			return nil, err
-		}
-
-		roots = append(roots, root)
-	}
-
-	return roots, nil
-}
-
-// buildLookupRoot resolves one lookup path into a module or workspace root.
-func buildLookupRoot(lookupPath string) (lookupRoot, error) {
-	rootDir, rootKind, err := findLookupEnvironment(lookupPath)
-	if err != nil {
-		return lookupRoot{}, err
-	}
-
-	var modules []moduleRoot
-	switch rootKind {
-	case "work":
-		modules, err = loadWorkspaceModules(rootDir)
-	case "mod":
-		modules, err = loadModuleRoots(rootDir)
-	default:
-		err = fmt.Errorf("unsupported lookup root type %q", rootKind)
-	}
-	if err != nil {
-		return lookupRoot{}, err
-	}
-
-	return lookupRoot{
-		path:    lookupPath,
-		modules: modules,
-	}, nil
-}
-
-// findLookupEnvironment finds the effective module or workspace root for one path.
-func findLookupEnvironment(startDir string) (string, string, error) {
-	dir := startDir
-	var moduleDir string
-	for {
-		workFile := filepath.Join(dir, "go.work")
-		if _, err := os.Stat(workFile); err == nil {
-			return dir, "work", nil
-		} else if !errorsIsNotExist(err) {
-			return "", "", fmt.Errorf("stat %q: %w", workFile, err)
-		}
-
-		modFile := filepath.Join(dir, "go.mod")
-		if moduleDir == "" {
-			if _, err := os.Stat(modFile); err == nil {
-				moduleDir = dir
-			} else if !errorsIsNotExist(err) {
-				return "", "", fmt.Errorf("stat %q: %w", modFile, err)
-			}
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-
-	if moduleDir != "" {
-		return moduleDir, "mod", nil
-	}
-
-	return "", "", fmt.Errorf("no go.mod or go.work found for lookup path %q", startDir)
-}
-
-// loadWorkspaceModules loads all module roots referenced by a go.work file.
-func loadWorkspaceModules(workDir string) ([]moduleRoot, error) {
-	useDirs, err := parseGoWorkUseDirs(workDir)
-	if err != nil {
-		return nil, err
-	}
-
-	modules := make([]moduleRoot, 0, len(useDirs))
-	seen := make(map[string]struct{}, len(useDirs))
-	for _, useDir := range useDirs {
-		moduleDir, err := resolveDir(filepath.Join(workDir, useDir))
-		if err != nil {
-			return nil, fmt.Errorf("resolve workspace use path %q: %w", useDir, err)
-		}
-
-		if _, ok := seen[moduleDir]; ok {
-			continue
-		}
-
-		modulePath, err := parseModulePath(moduleDir)
-		if err != nil {
-			return nil, err
-		}
-
-		modules = append(modules, moduleRoot{
-			dir:        moduleDir,
-			modulePath: modulePath,
-		})
-		seen[moduleDir] = struct{}{}
-	}
-
-	if len(modules) == 0 {
-		return nil, fmt.Errorf("workspace %q does not declare any module use paths", workDir)
-	}
-
-	return modules, nil
-}
-
-// loadModuleRoots loads one module root from a go.mod directory.
-func loadModuleRoots(moduleDir string) ([]moduleRoot, error) {
-	modulePath, err := parseModulePath(moduleDir)
-	if err != nil {
-		return nil, err
-	}
-
-	return []moduleRoot{{
-		dir:        moduleDir,
-		modulePath: modulePath,
-	}}, nil
-}
-
-// parseGoWorkUseDirs extracts `use` directives from a go.work file.
-func parseGoWorkUseDirs(workDir string) ([]string, error) {
-	file, err := os.Open(filepath.Join(workDir, "go.work"))
-	if err != nil {
-		return nil, fmt.Errorf("open go.work: %w", err)
-	}
-	defer file.Close()
-
-	var paths []string
-	inUseBlock := false
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := stripGoDirectiveComment(scanner.Text())
-		if line == "" {
-			continue
-		}
-
-		switch {
-		case inUseBlock:
-			if line == ")" {
-				inUseBlock = false
-				continue
-			}
-
-			paths = append(paths, trimDirectiveValue(line))
-
-		case line == "use (" || line == "use(":
-			inUseBlock = true
-
-		case strings.HasPrefix(line, "use "):
-			paths = append(paths, trimDirectiveValue(strings.TrimSpace(strings.TrimPrefix(line, "use"))))
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("read go.work: %w", err)
-	}
-
-	return paths, nil
-}
-
-// parseModulePath extracts the module path from a go.mod file.
-func parseModulePath(moduleDir string) (string, error) {
-	file, err := os.Open(filepath.Join(moduleDir, "go.mod"))
-	if err != nil {
-		return "", fmt.Errorf("open go.mod: %w", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := stripGoDirectiveComment(scanner.Text())
-		if !strings.HasPrefix(line, "module ") {
-			continue
-		}
-
-		modulePath := trimDirectiveValue(strings.TrimSpace(strings.TrimPrefix(line, "module")))
-		if modulePath == "" {
-			break
-		}
-
-		return modulePath, nil
-	}
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("read go.mod: %w", err)
-	}
-
-	return "", fmt.Errorf("module path not found in %q", filepath.Join(moduleDir, "go.mod"))
-}
-
-// stripGoDirectiveComment removes trailing line comments from go.work/go.mod directives.
-func stripGoDirectiveComment(line string) string {
-	if idx := strings.Index(line, "//"); idx >= 0 {
-		line = line[:idx]
-	}
-
-	return strings.TrimSpace(line)
-}
-
-// trimDirectiveValue trims whitespace and optional quotes.
-func trimDirectiveValue(value string) string {
-	return strings.Trim(strings.TrimSpace(value), `"`)
-}
-
 // resolvePackage finds and caches one package from the configured lookup roots.
 func resolvePackage(lookupRoots []lookupRoot, importPath string, cache map[packageCacheKey]packageInfo) (packageInfo, lookupRoot, error) {
 	var failures []string
@@ -451,7 +236,7 @@ func resolvePackage(lookupRoots []lookupRoot, importPath string, cache map[packa
 			return info, lookupRoot, nil
 		}
 
-		failures = append(failures, fmt.Sprintf("%s: %v", lookupRoot.path, err))
+		failures = append(failures, fmt.Sprintf("%s: %v", lookupRoot.Path, err))
 	}
 
 	return packageInfo{}, lookupRoot{}, fmt.Errorf(
@@ -464,19 +249,19 @@ func resolvePackage(lookupRoots []lookupRoot, importPath string, cache map[packa
 // resolvePackageInRoot finds and caches one package from a single lookup root.
 func resolvePackageInRoot(lookupRoot lookupRoot, importPath string, cache map[packageCacheKey]packageInfo) (packageInfo, error) {
 	key := packageCacheKey{
-		lookupPath: lookupRoot.path,
+		lookupPath: lookupRoot.Path,
 		importPath: importPath,
 	}
 	if info, ok := cache[key]; ok {
 		return info, nil
 	}
 
-	module, relPath, ok := lookupRoot.bestModuleForImport(importPath)
+	module, relPath, ok := lookupRoot.BestModuleForImport(importPath)
 	if !ok {
 		return packageInfo{}, fmt.Errorf("no module matches import path %q", importPath)
 	}
 
-	dir := module.dir
+	dir := module.Dir
 	if relPath != "" {
 		dir = filepath.Join(dir, filepath.FromSlash(relPath))
 	}
@@ -488,45 +273,6 @@ func resolvePackageInRoot(lookupRoot lookupRoot, importPath string, cache map[pa
 
 	cache[key] = info
 	return info, nil
-}
-
-// bestModuleForImport returns the longest matching module path for one import.
-func (lookupRoot lookupRoot) bestModuleForImport(importPath string) (moduleRoot, string, bool) {
-	bestIndex := -1
-	bestRel := ""
-	bestLen := -1
-	for idx, module := range lookupRoot.modules {
-		relPath, ok := importPathWithinModule(importPath, module.modulePath)
-		if !ok {
-			continue
-		}
-
-		if len(module.modulePath) <= bestLen {
-			continue
-		}
-
-		bestIndex = idx
-		bestRel = relPath
-		bestLen = len(module.modulePath)
-	}
-
-	if bestIndex < 0 {
-		return moduleRoot{}, "", false
-	}
-
-	return lookupRoot.modules[bestIndex], bestRel, true
-}
-
-// importPathWithinModule reports whether an import path belongs to a module root.
-func importPathWithinModule(importPath, modulePath string) (string, bool) {
-	if importPath == modulePath {
-		return "", true
-	}
-	if !strings.HasPrefix(importPath, modulePath+"/") {
-		return "", false
-	}
-
-	return strings.TrimPrefix(importPath, modulePath+"/"), true
 }
 
 // loadPackageInfo reads package metadata directly from a source directory.
@@ -572,36 +318,7 @@ func resolveImportName(lookupRoot lookupRoot, importPath string, spec *ast.Impor
 		}
 	}
 
-	return defaultImportName(importPath), nil
-}
-
-// defaultImportName returns the most likely default package identifier for one import path.
-func defaultImportName(importPath string) string {
-	name := filepath.Base(importPath)
-	if idx := strings.LastIndex(name, ".v"); idx > 0 {
-		suffix := name[idx+2:]
-		if suffix != "" && allDigits(suffix) {
-			name = name[:idx]
-		}
-	}
-
-	return name
-}
-
-// allDigits reports whether s contains only ASCII digits.
-func allDigits(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-
-	return s != ""
-}
-
-// errorsIsNotExist reports whether err is an os.ErrNotExist condition.
-func errorsIsNotExist(err error) bool {
-	return err != nil && os.IsNotExist(err)
+	return decoders.DefaultImportName(importPath), nil
 }
 
 // receiverName returns the local receiver type name for a method receiver expression.

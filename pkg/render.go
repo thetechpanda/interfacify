@@ -5,6 +5,9 @@ import (
 	"go/ast"
 	"go/printer"
 	"strings"
+
+	decoders "github.com/thetechpanda/interfacify/pkg/decoders"
+	encoders "github.com/thetechpanda/interfacify/pkg/encoders"
 )
 
 // signatureRenderer formats method signatures and tracks required imports.
@@ -116,7 +119,7 @@ func (renderer *signatureRenderer) renderFieldList(list *ast.FieldList) (string,
 // renderExpr renders one type expression and qualifies local types when needed.
 func (renderer *signatureRenderer) renderExpr(expr ast.Expr) (string, error) {
 	if renderer.outputPkg != renderer.pkg.name {
-		if typeName, ok := firstUnexportedLocalType(expr, renderer.pkg.typeSpecs); ok {
+		if typeName, ok := encoders.FirstUnexportedLocalType(expr, renderer.pkg.typeSpecs); ok {
 			return "", fmt.Errorf(
 				"output package %q differs from source package %q for a method signature that uses unexported local type %q",
 				renderer.outputPkg,
@@ -129,8 +132,8 @@ func (renderer *signatureRenderer) renderExpr(expr ast.Expr) (string, error) {
 	renderer.collectImports(expr)
 
 	renderExpr := expr
-	if renderer.outputPkg != renderer.pkg.name && exprUsesLocalTypes(expr, renderer.pkg.typeSpecs) {
-		renderExpr = qualifyLocalTypeRefs(expr, renderer.pkg.typeSpecs, renderer.ensureSourceImportAlias())
+	if renderer.outputPkg != renderer.pkg.name && encoders.ExprUsesLocalTypes(expr, renderer.pkg.typeSpecs) {
+		renderExpr = encoders.QualifyLocalTypeRefs(expr, renderer.pkg.typeSpecs, renderer.ensureSourceImportAlias())
 	}
 
 	var output strings.Builder
@@ -149,7 +152,7 @@ func (renderer *signatureRenderer) ensureSourceImportAlias() string {
 
 	preferred := renderer.pkg.name
 	if preferred == "" {
-		preferred = defaultImportName(renderer.pkg.importPath)
+		preferred = decoders.DefaultImportName(renderer.pkg.importPath)
 	}
 
 	alias := preferred
@@ -188,294 +191,4 @@ func (renderer *signatureRenderer) collectImports(expr ast.Expr) {
 
 		return true
 	})
-}
-
-// qualifyLocalTypeRefs clones expr and qualifies local named types with sourceAlias.
-func qualifyLocalTypeRefs(expr ast.Expr, localTypes map[string]*ast.TypeSpec, sourceAlias string) ast.Expr {
-	switch expr := expr.(type) {
-	case nil:
-		return nil
-	case *ast.ArrayType:
-		return &ast.ArrayType{
-			Len: qualifyLocalTypeRefs(expr.Len, localTypes, sourceAlias),
-			Elt: qualifyLocalTypeRefs(expr.Elt, localTypes, sourceAlias),
-		}
-	case *ast.BasicLit:
-		return &ast.BasicLit{
-			Kind:  expr.Kind,
-			Value: expr.Value,
-		}
-	case *ast.BinaryExpr:
-		return &ast.BinaryExpr{
-			X:  qualifyLocalTypeRefs(expr.X, localTypes, sourceAlias),
-			Op: expr.Op,
-			Y:  qualifyLocalTypeRefs(expr.Y, localTypes, sourceAlias),
-		}
-	case *ast.ChanType:
-		return &ast.ChanType{
-			Dir:   expr.Dir,
-			Value: qualifyLocalTypeRefs(expr.Value, localTypes, sourceAlias),
-		}
-	case *ast.Ellipsis:
-		return &ast.Ellipsis{
-			Elt: qualifyLocalTypeRefs(expr.Elt, localTypes, sourceAlias),
-		}
-	case *ast.FuncType:
-		return &ast.FuncType{
-			Params:  qualifyFieldListLocalTypeRefs(expr.Params, localTypes, sourceAlias),
-			Results: qualifyFieldListLocalTypeRefs(expr.Results, localTypes, sourceAlias),
-		}
-	case *ast.Ident:
-		if _, ok := localTypes[expr.Name]; ok {
-			return &ast.SelectorExpr{
-				X:   ast.NewIdent(sourceAlias),
-				Sel: ast.NewIdent(expr.Name),
-			}
-		}
-
-		return ast.NewIdent(expr.Name)
-	case *ast.IndexExpr:
-		return &ast.IndexExpr{
-			X:     qualifyLocalTypeRefs(expr.X, localTypes, sourceAlias),
-			Index: qualifyLocalTypeRefs(expr.Index, localTypes, sourceAlias),
-		}
-	case *ast.IndexListExpr:
-		indices := make([]ast.Expr, 0, len(expr.Indices))
-		for _, index := range expr.Indices {
-			indices = append(indices, qualifyLocalTypeRefs(index, localTypes, sourceAlias))
-		}
-
-		return &ast.IndexListExpr{
-			X:       qualifyLocalTypeRefs(expr.X, localTypes, sourceAlias),
-			Indices: indices,
-		}
-	case *ast.InterfaceType:
-		return &ast.InterfaceType{
-			Methods:    qualifyFieldListLocalTypeRefs(expr.Methods, localTypes, sourceAlias),
-			Incomplete: expr.Incomplete,
-		}
-	case *ast.MapType:
-		return &ast.MapType{
-			Key:   qualifyLocalTypeRefs(expr.Key, localTypes, sourceAlias),
-			Value: qualifyLocalTypeRefs(expr.Value, localTypes, sourceAlias),
-		}
-	case *ast.ParenExpr:
-		return &ast.ParenExpr{X: qualifyLocalTypeRefs(expr.X, localTypes, sourceAlias)}
-	case *ast.SelectorExpr:
-		ident, ok := expr.X.(*ast.Ident)
-		if ok {
-			return &ast.SelectorExpr{
-				X:   ast.NewIdent(ident.Name),
-				Sel: ast.NewIdent(expr.Sel.Name),
-			}
-		}
-
-		return &ast.SelectorExpr{
-			X:   qualifyLocalTypeRefs(expr.X, localTypes, sourceAlias),
-			Sel: ast.NewIdent(expr.Sel.Name),
-		}
-	case *ast.StarExpr:
-		return &ast.StarExpr{X: qualifyLocalTypeRefs(expr.X, localTypes, sourceAlias)}
-	case *ast.StructType:
-		return &ast.StructType{
-			Fields:     qualifyFieldListLocalTypeRefs(expr.Fields, localTypes, sourceAlias),
-			Incomplete: expr.Incomplete,
-		}
-	case *ast.UnaryExpr:
-		return &ast.UnaryExpr{
-			Op: expr.Op,
-			X:  qualifyLocalTypeRefs(expr.X, localTypes, sourceAlias),
-		}
-	default:
-		return expr
-	}
-}
-
-// qualifyFieldListLocalTypeRefs clones list and qualifies local named types.
-func qualifyFieldListLocalTypeRefs(list *ast.FieldList, localTypes map[string]*ast.TypeSpec, sourceAlias string) *ast.FieldList {
-	if list == nil {
-		return nil
-	}
-
-	fields := make([]*ast.Field, 0, len(list.List))
-	for _, field := range list.List {
-		fields = append(fields, qualifyFieldLocalTypeRefs(field, localTypes, sourceAlias))
-	}
-
-	return &ast.FieldList{List: fields}
-}
-
-// qualifyFieldLocalTypeRefs clones field and qualifies local named types in its type.
-func qualifyFieldLocalTypeRefs(field *ast.Field, localTypes map[string]*ast.TypeSpec, sourceAlias string) *ast.Field {
-	if field == nil {
-		return nil
-	}
-
-	names := make([]*ast.Ident, 0, len(field.Names))
-	for _, name := range field.Names {
-		names = append(names, ast.NewIdent(name.Name))
-	}
-
-	return &ast.Field{
-		Names: names,
-		Type:  qualifyLocalTypeRefs(field.Type, localTypes, sourceAlias),
-		Tag:   cloneBasicLit(field.Tag),
-	}
-}
-
-// cloneBasicLit clones one basic literal.
-func cloneBasicLit(lit *ast.BasicLit) *ast.BasicLit {
-	if lit == nil {
-		return nil
-	}
-
-	return &ast.BasicLit{
-		Kind:  lit.Kind,
-		Value: lit.Value,
-	}
-}
-
-// exprUsesLocalTypes reports whether an expression refers to local named types.
-func exprUsesLocalTypes(expr ast.Expr, localTypes map[string]*ast.TypeSpec) bool {
-	switch expr := expr.(type) {
-	case nil:
-		return false
-	case *ast.Ident:
-		_, ok := localTypes[expr.Name]
-		return ok
-	case *ast.ArrayType:
-		return exprUsesLocalTypes(expr.Len, localTypes) || exprUsesLocalTypes(expr.Elt, localTypes)
-	case *ast.BinaryExpr:
-		return exprUsesLocalTypes(expr.X, localTypes) || exprUsesLocalTypes(expr.Y, localTypes)
-	case *ast.ChanType:
-		return exprUsesLocalTypes(expr.Value, localTypes)
-	case *ast.Ellipsis:
-		return exprUsesLocalTypes(expr.Elt, localTypes)
-	case *ast.FuncType:
-		return fieldListUsesLocalTypes(expr.Params, localTypes) || fieldListUsesLocalTypes(expr.Results, localTypes)
-	case *ast.IndexExpr:
-		return exprUsesLocalTypes(expr.X, localTypes) || exprUsesLocalTypes(expr.Index, localTypes)
-	case *ast.IndexListExpr:
-		if exprUsesLocalTypes(expr.X, localTypes) {
-			return true
-		}
-		for _, index := range expr.Indices {
-			if exprUsesLocalTypes(index, localTypes) {
-				return true
-			}
-		}
-		return false
-	case *ast.InterfaceType:
-		return fieldListUsesLocalTypes(expr.Methods, localTypes)
-	case *ast.MapType:
-		return exprUsesLocalTypes(expr.Key, localTypes) || exprUsesLocalTypes(expr.Value, localTypes)
-	case *ast.ParenExpr:
-		return exprUsesLocalTypes(expr.X, localTypes)
-	case *ast.SelectorExpr:
-		return false
-	case *ast.StarExpr:
-		return exprUsesLocalTypes(expr.X, localTypes)
-	case *ast.StructType:
-		return fieldListUsesLocalTypes(expr.Fields, localTypes)
-	case *ast.UnaryExpr:
-		return exprUsesLocalTypes(expr.X, localTypes)
-	default:
-		return false
-	}
-}
-
-// fieldListUsesLocalTypes reports whether any field type refers to a local named type.
-func fieldListUsesLocalTypes(list *ast.FieldList, localTypes map[string]*ast.TypeSpec) bool {
-	if list == nil {
-		return false
-	}
-
-	for _, field := range list.List {
-		if exprUsesLocalTypes(field.Type, localTypes) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// firstUnexportedLocalType returns the first unexported local named type used by expr.
-func firstUnexportedLocalType(expr ast.Expr, localTypes map[string]*ast.TypeSpec) (string, bool) {
-	switch expr := expr.(type) {
-	case nil:
-		return "", false
-	case *ast.Ident:
-		if _, ok := localTypes[expr.Name]; ok && !ast.IsExported(expr.Name) {
-			return expr.Name, true
-		}
-		return "", false
-	case *ast.ArrayType:
-		if typeName, ok := firstUnexportedLocalType(expr.Len, localTypes); ok {
-			return typeName, true
-		}
-		return firstUnexportedLocalType(expr.Elt, localTypes)
-	case *ast.BinaryExpr:
-		if typeName, ok := firstUnexportedLocalType(expr.X, localTypes); ok {
-			return typeName, true
-		}
-		return firstUnexportedLocalType(expr.Y, localTypes)
-	case *ast.ChanType:
-		return firstUnexportedLocalType(expr.Value, localTypes)
-	case *ast.Ellipsis:
-		return firstUnexportedLocalType(expr.Elt, localTypes)
-	case *ast.FuncType:
-		if typeName, ok := firstUnexportedLocalTypeInFieldList(expr.Params, localTypes); ok {
-			return typeName, true
-		}
-		return firstUnexportedLocalTypeInFieldList(expr.Results, localTypes)
-	case *ast.IndexExpr:
-		if typeName, ok := firstUnexportedLocalType(expr.X, localTypes); ok {
-			return typeName, true
-		}
-		return firstUnexportedLocalType(expr.Index, localTypes)
-	case *ast.IndexListExpr:
-		if typeName, ok := firstUnexportedLocalType(expr.X, localTypes); ok {
-			return typeName, true
-		}
-		for _, index := range expr.Indices {
-			if typeName, ok := firstUnexportedLocalType(index, localTypes); ok {
-				return typeName, true
-			}
-		}
-		return "", false
-	case *ast.InterfaceType:
-		return firstUnexportedLocalTypeInFieldList(expr.Methods, localTypes)
-	case *ast.MapType:
-		if typeName, ok := firstUnexportedLocalType(expr.Key, localTypes); ok {
-			return typeName, true
-		}
-		return firstUnexportedLocalType(expr.Value, localTypes)
-	case *ast.ParenExpr:
-		return firstUnexportedLocalType(expr.X, localTypes)
-	case *ast.SelectorExpr:
-		return "", false
-	case *ast.StarExpr:
-		return firstUnexportedLocalType(expr.X, localTypes)
-	case *ast.StructType:
-		return firstUnexportedLocalTypeInFieldList(expr.Fields, localTypes)
-	case *ast.UnaryExpr:
-		return firstUnexportedLocalType(expr.X, localTypes)
-	default:
-		return "", false
-	}
-}
-
-// firstUnexportedLocalTypeInFieldList returns the first unexported local type used in list.
-func firstUnexportedLocalTypeInFieldList(list *ast.FieldList, localTypes map[string]*ast.TypeSpec) (string, bool) {
-	if list == nil {
-		return "", false
-	}
-
-	for _, field := range list.List {
-		if typeName, ok := firstUnexportedLocalType(field.Type, localTypes); ok {
-			return typeName, true
-		}
-	}
-
-	return "", false
 }
