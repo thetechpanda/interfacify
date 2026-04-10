@@ -51,6 +51,14 @@ type methodDecl struct {
 	results *ast.FieldList
 }
 
+// embeddedPath tracks one embedded type reached through one promotion path.
+type embeddedPath struct {
+	// typeName is the embedded local type name reached at the current depth.
+	typeName string
+	// visiting tracks the local types already traversed on this path.
+	visiting map[string]struct{}
+}
+
 // sourcePackage caches the parsed state for one source package.
 type sourcePackage struct {
 	// importPath is the fully-qualified import path for the package.
@@ -355,30 +363,53 @@ func localTypeName(expr ast.Expr) (string, bool) {
 
 // collectMethods collects declared methods and optionally embedded methods for a type.
 func (pkg *sourcePackage) collectMethods(typeName string, includeEmbedded bool) []methodDecl {
-	methods := make([]methodDecl, 0, len(pkg.methods[typeName])+len(pkg.interfaceMethods[typeName]))
-	seen := map[string]struct{}{}
-
-	pkg.appendDeclaredMethods(typeName, &methods, seen)
-	if includeEmbedded {
-		pkg.appendEmbeddedMethods(typeName, &methods, seen, map[string]struct{}{})
+	typeSpec := pkg.typeSpecs[typeName]
+	if typeSpec == nil {
+		return nil
 	}
 
+	if _, ok := typeSpec.Type.(*ast.InterfaceType); ok {
+		return pkg.collectInterfaceMethods(typeName, includeEmbedded)
+	}
+
+	return pkg.collectConcreteMethods(typeName, includeEmbedded)
+}
+
+// collectConcreteMethods collects direct and promoted methods for one concrete type.
+func (pkg *sourcePackage) collectConcreteMethods(typeName string, includeEmbedded bool) []methodDecl {
+	methods := make([]methodDecl, 0, len(pkg.methods[typeName]))
+	seen := map[string]struct{}{}
+
+	for _, method := range pkg.methods[typeName] {
+		pkg.appendMethod(method, &methods, seen)
+	}
+
+	if !includeEmbedded {
+		return methods
+	}
+
+	typeSpec := pkg.typeSpecs[typeName]
+	structType, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		return methods
+	}
+
+	pkg.appendPromotedMethods(typeName, structType, &methods, seen)
 	return methods
 }
 
-// appendDeclaredMethods appends methods declared directly on the named type.
-func (pkg *sourcePackage) appendDeclaredMethods(typeName string, methods *[]methodDecl, seen map[string]struct{}) {
-	for _, method := range pkg.methods[typeName] {
-		pkg.appendMethod(method, methods, seen)
-	}
-	for _, method := range pkg.interfaceMethods[typeName] {
-		pkg.appendMethod(method, methods, seen)
-	}
+// collectInterfaceMethods collects direct and optionally embedded interface methods.
+func (pkg *sourcePackage) collectInterfaceMethods(typeName string, includeEmbedded bool) []methodDecl {
+	methods := make([]methodDecl, 0, len(pkg.interfaceMethods[typeName]))
+	seen := map[string]struct{}{}
+	pkg.appendInterfaceMethods(typeName, includeEmbedded, &methods, seen, map[string]struct{}{})
+	return methods
 }
 
-// appendEmbeddedMethods walks embedded local types and appends their methods.
-func (pkg *sourcePackage) appendEmbeddedMethods(
+// appendInterfaceMethods appends the direct and embedded methods of one interface type.
+func (pkg *sourcePackage) appendInterfaceMethods(
 	typeName string,
+	includeEmbedded bool,
 	methods *[]methodDecl,
 	seen map[string]struct{},
 	visiting map[string]struct{},
@@ -389,42 +420,152 @@ func (pkg *sourcePackage) appendEmbeddedMethods(
 	visiting[typeName] = struct{}{}
 	defer delete(visiting, typeName)
 
+	for _, method := range pkg.interfaceMethods[typeName] {
+		pkg.appendMethod(method, methods, seen)
+	}
+
+	if !includeEmbedded {
+		return
+	}
+
 	typeSpec := pkg.typeSpecs[typeName]
 	if typeSpec == nil {
 		return
 	}
 
-	switch typ := typeSpec.Type.(type) {
-	case *ast.StructType:
-		for _, field := range typ.Fields.List {
-			if len(field.Names) != 0 {
-				continue
-			}
-
-			embeddedType, ok := localTypeName(field.Type)
-			if !ok {
-				continue
-			}
-
-			pkg.appendDeclaredMethods(embeddedType, methods, seen)
-			pkg.appendEmbeddedMethods(embeddedType, methods, seen, visiting)
-		}
-
-	case *ast.InterfaceType:
-		for _, field := range typ.Methods.List {
-			if len(field.Names) != 0 {
-				continue
-			}
-
-			embeddedType, ok := localTypeName(field.Type)
-			if !ok {
-				continue
-			}
-
-			pkg.appendDeclaredMethods(embeddedType, methods, seen)
-			pkg.appendEmbeddedMethods(embeddedType, methods, seen, visiting)
-		}
+	iface, ok := typeSpec.Type.(*ast.InterfaceType)
+	if !ok {
+		return
 	}
+
+	for _, embeddedType := range localEmbeddedTypes(iface.Methods) {
+		pkg.appendInterfaceMethods(embeddedType, true, methods, seen, visiting)
+	}
+}
+
+// appendPromotedMethods appends promoted methods using struct embedding depth rules.
+func (pkg *sourcePackage) appendPromotedMethods(
+	rootTypeName string,
+	structType *ast.StructType,
+	methods *[]methodDecl,
+	seen map[string]struct{},
+) {
+	current := make([]embeddedPath, 0, len(structType.Fields.List))
+	for _, embeddedType := range localEmbeddedTypes(structType.Fields) {
+		current = append(current, embeddedPath{
+			typeName: embeddedType,
+			visiting: map[string]struct{}{rootTypeName: {}, embeddedType: {}},
+		})
+	}
+
+	ambiguous := map[string]struct{}{}
+	for len(current) > 0 {
+		levelMethods := map[string][]methodDecl{}
+		levelOrder := make([]string, 0, len(current))
+		next := make([]embeddedPath, 0, len(current))
+
+		for _, path := range current {
+			for _, method := range pkg.methodsAtEmbeddingDepth(path.typeName) {
+				if _, ok := seen[method.name]; ok {
+					continue
+				}
+				if _, ok := ambiguous[method.name]; ok {
+					continue
+				}
+				if _, ok := levelMethods[method.name]; !ok {
+					levelOrder = append(levelOrder, method.name)
+				}
+				levelMethods[method.name] = append(levelMethods[method.name], method)
+			}
+
+			for _, embeddedType := range pkg.nextEmbeddedLocalTypes(path.typeName) {
+				if _, ok := path.visiting[embeddedType]; ok {
+					continue
+				}
+
+				next = append(next, embeddedPath{
+					typeName: embeddedType,
+					visiting: extendVisitedTypes(path.visiting, embeddedType),
+				})
+			}
+		}
+
+		for _, name := range levelOrder {
+			candidates := levelMethods[name]
+			if len(candidates) != 1 {
+				ambiguous[name] = struct{}{}
+				continue
+			}
+
+			pkg.appendMethod(candidates[0], methods, seen)
+		}
+
+		current = next
+	}
+}
+
+// methodsAtEmbeddingDepth returns the methods contributed by one embedded type at its depth.
+func (pkg *sourcePackage) methodsAtEmbeddingDepth(typeName string) []methodDecl {
+	typeSpec := pkg.typeSpecs[typeName]
+	if typeSpec == nil {
+		return nil
+	}
+
+	if _, ok := typeSpec.Type.(*ast.InterfaceType); ok {
+		return pkg.collectInterfaceMethods(typeName, true)
+	}
+
+	methods := make([]methodDecl, 0, len(pkg.methods[typeName]))
+	methods = append(methods, pkg.methods[typeName]...)
+	return methods
+}
+
+// nextEmbeddedLocalTypes returns the local embedded types that sit one level deeper.
+func (pkg *sourcePackage) nextEmbeddedLocalTypes(typeName string) []string {
+	typeSpec := pkg.typeSpecs[typeName]
+	if typeSpec == nil {
+		return nil
+	}
+
+	structType, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		return nil
+	}
+
+	return localEmbeddedTypes(structType.Fields)
+}
+
+// localEmbeddedTypes returns the local embedded type names from one field list.
+func localEmbeddedTypes(fields *ast.FieldList) []string {
+	if fields == nil {
+		return nil
+	}
+
+	types := make([]string, 0, len(fields.List))
+	for _, field := range fields.List {
+		if len(field.Names) != 0 {
+			continue
+		}
+
+		embeddedType, ok := localTypeName(field.Type)
+		if !ok {
+			continue
+		}
+
+		types = append(types, embeddedType)
+	}
+
+	return types
+}
+
+// extendVisitedTypes clones one visited set and adds the next type.
+func extendVisitedTypes(visiting map[string]struct{}, typeName string) map[string]struct{} {
+	clone := make(map[string]struct{}, len(visiting)+1)
+	for name := range visiting {
+		clone[name] = struct{}{}
+	}
+	clone[typeName] = struct{}{}
+	return clone
 }
 
 // appendMethod appends a method once based on its name.

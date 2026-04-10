@@ -1,0 +1,15 @@
+package service
+
+// PrefixRunnerSuffix is an interface matching example.com/interfacify-embeddedconflicts/service.Runner
+//
+// Runner combines direct, shallow, deep, and conflicting promoted methods.
+type PrefixRunnerSuffix interface {
+	// Run reports runner behavior.
+	Run() error
+	// Depth reports the deep path.
+	Depth() string
+	// LeftOnly reports left-only behavior.
+	LeftOnly() bool
+	// RightOnly reports right-only behavior.
+	RightOnly() error
+}
