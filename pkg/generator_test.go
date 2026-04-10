@@ -113,6 +113,16 @@ func TestGenerate(t *testing.T) {
 			prefix:   "Prefix",
 			suffix:   "Suffix",
 		},
+		{
+			name:     "ambiguous promoted methods are omitted and shallow methods win",
+			fixture:  "_embedded_conflicts",
+			structs:  "example.com/interfacify-embeddedconflicts/service.Runner",
+			pkg:      "service",
+			deep:     true,
+			expected: "expected.golden",
+			prefix:   "Prefix",
+			suffix:   "Suffix",
+		},
 	}
 
 	for _, test := range tests {
