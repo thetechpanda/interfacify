@@ -68,6 +68,17 @@ func TestGenerate(t *testing.T) {
 			suffix:   "Suffix",
 		},
 		{
+			name:     "methods are ordered deterministically",
+			fixture:  "_ordering",
+			structs:  "example.com/interfacify-ordering/service.Contract,example.com/interfacify-ordering/service.Worker",
+			pkg:      "service",
+			deep:     true,
+			output:   filepath.Join("service", "generated.go"),
+			expected: "expected.golden",
+			prefix:   "Prefix",
+			suffix:   "Suffix",
+		},
+		{
 			name:     "nested embedded methods",
 			fixture:  "_nested",
 			structs:  "example.com/interfacify-nested/nested.Top",

@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -523,7 +524,7 @@ func (pkg *sourcePackage) collectConcreteMethods(ref typeRef, includeEmbedded bo
 	methods := make([]methodDecl, 0, len(ref.pkg.methods[ref.typeName]))
 	seen := map[string]struct{}{}
 
-	for _, method := range ref.pkg.methods[ref.typeName] {
+	for _, method := range sortedMethods(ref.pkg.methods[ref.typeName]) {
 		pkg.appendMethod(method, &methods, seen)
 	}
 
@@ -569,7 +570,7 @@ func (pkg *sourcePackage) appendInterfaceMethods(
 	visiting[ref.key()] = struct{}{}
 	defer delete(visiting, ref.key())
 
-	for _, method := range ref.pkg.interfaceMethods[ref.typeName] {
+	for _, method := range sortedMethods(ref.pkg.interfaceMethods[ref.typeName]) {
 		pkg.appendMethod(method, methods, seen)
 	}
 
@@ -591,6 +592,7 @@ func (pkg *sourcePackage) appendInterfaceMethods(
 	if err != nil {
 		return err
 	}
+	sortTypeRefs(embeddedRefs)
 	for _, embeddedRef := range embeddedRefs {
 		if err := pkg.appendInterfaceMethods(embeddedRef, true, methods, seen, visiting); err != nil {
 			return err
@@ -611,6 +613,7 @@ func (pkg *sourcePackage) appendPromotedMethods(
 	if err != nil {
 		return err
 	}
+	sortTypeRefs(embeddedRefs)
 
 	current := make([]embeddedPath, 0, len(embeddedRefs))
 	for _, embeddedRef := range embeddedRefs {
@@ -623,7 +626,6 @@ func (pkg *sourcePackage) appendPromotedMethods(
 	ambiguous := map[string]struct{}{}
 	for len(current) > 0 {
 		levelMethods := map[string][]methodDecl{}
-		levelOrder := make([]string, 0, len(current))
 		next := make([]embeddedPath, 0, len(current))
 
 		for _, path := range current {
@@ -639,9 +641,6 @@ func (pkg *sourcePackage) appendPromotedMethods(
 				if _, ok := ambiguous[method.name]; ok {
 					continue
 				}
-				if _, ok := levelMethods[method.name]; !ok {
-					levelOrder = append(levelOrder, method.name)
-				}
 				levelMethods[method.name] = append(levelMethods[method.name], method)
 			}
 
@@ -649,6 +648,7 @@ func (pkg *sourcePackage) appendPromotedMethods(
 			if err != nil {
 				return err
 			}
+			sortTypeRefs(nextRefs)
 			for _, embeddedRef := range nextRefs {
 				if _, ok := path.visiting[embeddedRef.key()]; ok {
 					continue
@@ -661,7 +661,13 @@ func (pkg *sourcePackage) appendPromotedMethods(
 			}
 		}
 
-		for _, name := range levelOrder {
+		levelNames := make([]string, 0, len(levelMethods))
+		for name := range levelMethods {
+			levelNames = append(levelNames, name)
+		}
+		sort.Strings(levelNames)
+
+		for _, name := range levelNames {
 			candidates := levelMethods[name]
 			if len(candidates) != 1 {
 				ambiguous[name] = struct{}{}
@@ -689,7 +695,7 @@ func (pkg *sourcePackage) methodsAtEmbeddingDepth(ref typeRef) ([]methodDecl, er
 	}
 
 	methods := make([]methodDecl, 0, len(ref.pkg.methods[ref.typeName]))
-	methods = append(methods, ref.pkg.methods[ref.typeName]...)
+	methods = append(methods, sortedMethods(ref.pkg.methods[ref.typeName])...)
 	return methods, nil
 }
 
@@ -716,6 +722,26 @@ func extendVisitedTypes(visiting map[string]struct{}, key string) map[string]str
 	}
 	clone[key] = struct{}{}
 	return clone
+}
+
+// sortedMethods returns a copy of methods sorted by method name.
+func sortedMethods(methods []methodDecl) []methodDecl {
+	if len(methods) == 0 {
+		return nil
+	}
+
+	sorted := append([]methodDecl(nil), methods...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].name < sorted[j].name
+	})
+	return sorted
+}
+
+// sortTypeRefs sorts embedded type references by stable package-qualified key.
+func sortTypeRefs(refs []typeRef) {
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i].key() < refs[j].key()
+	})
 }
 
 // appendMethod appends a method once based on its name.

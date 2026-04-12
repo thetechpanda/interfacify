@@ -9,8 +9,8 @@ import (
 //
 // Runner runs tasks.
 type PrefixRunnerSuffix interface {
-	// Run handles a task.
-	Run(context.Context, string) error
 	// GetNested returns a nested struct from the current package
 	GetNested() service.RunnerNested
+	// Run handles a task.
+	Run(context.Context, string) error
 }
