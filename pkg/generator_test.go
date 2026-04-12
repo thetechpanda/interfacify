@@ -19,6 +19,7 @@ func TestGenerate(t *testing.T) {
 		structs  string
 		pkg      string
 		deep     bool
+		output   string
 		expected string
 		prefix   string
 		suffix   string
@@ -29,6 +30,7 @@ func TestGenerate(t *testing.T) {
 			structs:  "example.com/interfacify-basic/examples.A,example.com/interfacify-basic/examples.B",
 			pkg:      "examples",
 			deep:     true,
+			output:   filepath.Join("examples", "generated.go"),
 			expected: "expected_deep.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -39,6 +41,7 @@ func TestGenerate(t *testing.T) {
 			structs:  "example.com/interfacify-basic/examples.A",
 			pkg:      "examples",
 			deep:     false,
+			output:   filepath.Join("examples", "generated.go"),
 			expected: "expected_shallow.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -49,6 +52,7 @@ func TestGenerate(t *testing.T) {
 			structs:  "example.com/interfacify-imports/service.Runner",
 			pkg:      "service",
 			deep:     true,
+			output:   filepath.Join("service", "generated.go"),
 			expected: "expected.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -69,6 +73,7 @@ func TestGenerate(t *testing.T) {
 			structs:  "example.com/interfacify-nested/nested.Top",
 			pkg:      "nested",
 			deep:     true,
+			output:   filepath.Join("nested", "generated.go"),
 			expected: "expected.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -79,6 +84,7 @@ func TestGenerate(t *testing.T) {
 			structs:  "example.com/interfacify-multifile/service.Worker",
 			pkg:      "service",
 			deep:     true,
+			output:   filepath.Join("service", "generated.go"),
 			expected: "expected.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -89,6 +95,7 @@ func TestGenerate(t *testing.T) {
 			structs:  "example.com/interfacify-generics/service.Reader,example.com/interfacify-generics/service.Loader",
 			pkg:      "service",
 			deep:     true,
+			output:   filepath.Join("service", "generated.go"),
 			expected: "expected.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -99,6 +106,7 @@ func TestGenerate(t *testing.T) {
 			structs:  "example.com/interfacify-generics-multi/service.Pair,example.com/interfacify-generics-multi/service.Entry",
 			pkg:      "service",
 			deep:     true,
+			output:   filepath.Join("service", "generated.go"),
 			expected: "expected.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -114,11 +122,23 @@ func TestGenerate(t *testing.T) {
 			suffix:   "Suffix",
 		},
 		{
+			name:     "same package name in different directory still qualifies source-local types",
+			fixture:  "_same_pkg_name_different_dir",
+			structs:  "example.com/interfacify-samepkg/service.Runner",
+			pkg:      "service",
+			deep:     true,
+			output:   filepath.Join("generated", "service", "generated.go"),
+			expected: filepath.Join("generated", "service", "expected.golden"),
+			prefix:   "Prefix",
+			suffix:   "Suffix",
+		},
+		{
 			name:     "external import keeps declared package name",
 			fixture:  "_external_pkg_name/source",
 			structs:  "example.com/interfacify-externalpkg/source/service.Runner",
 			pkg:      "service",
 			deep:     true,
+			output:   filepath.Join("service", "generated.go"),
 			expected: "expected.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -129,6 +149,7 @@ func TestGenerate(t *testing.T) {
 			structs:  "example.com/interfacify-embeddedconflicts/service.Runner",
 			pkg:      "service",
 			deep:     true,
+			output:   filepath.Join("service", "generated.go"),
 			expected: "expected.golden",
 			prefix:   "Prefix",
 			suffix:   "Suffix",
@@ -143,7 +164,7 @@ func TestGenerate(t *testing.T) {
 			cfg := interfacify.Config{
 				PathsList:       fixturePath(test.fixture),
 				StructsList:     test.structs,
-				OutputFile:      fixturePath(test.fixture, test.expected),
+				OutputFile:      fixturePath(test.fixture, outputPath(test.output, test.expected)),
 				OutputPkg:       test.pkg,
 				IncludeEmbedded: test.deep,
 				Prefix:          test.prefix,
@@ -155,7 +176,7 @@ func TestGenerate(t *testing.T) {
 				t.Fatalf("Generate() error = %v", err)
 			}
 
-			want, err := os.ReadFile(cfg.OutputFile)
+			want, err := os.ReadFile(fixturePath(test.fixture, test.expected))
 			if err != nil {
 				t.Fatalf("os.ReadFile(%q) error = %v", test.expected, err)
 			}
@@ -312,7 +333,7 @@ func TestGenerateSearchesAcrossPaths(t *testing.T) {
 	cfg := interfacify.Config{
 		PathsList:       strings.Join([]string{fixturePath("_imports"), fixturePath("_basic")}, ","),
 		StructsList:     "example.com/interfacify-basic/examples.A",
-		OutputFile:      fixturePath("_basic", "expected_shallow.golden"),
+		OutputFile:      fixturePath("_basic", "examples", "generated.go"),
 		OutputPkg:       "examples",
 		IncludeEmbedded: false,
 		Prefix:          "Prefix",
@@ -324,14 +345,23 @@ func TestGenerateSearchesAcrossPaths(t *testing.T) {
 		t.Fatalf("Generate() error = %v", err)
 	}
 
-	want, err := os.ReadFile(cfg.OutputFile)
+	want, err := os.ReadFile(fixturePath("_basic", "expected_shallow.golden"))
 	if err != nil {
-		t.Fatalf("os.ReadFile(%q) error = %v", cfg.OutputFile, err)
+		t.Fatalf("os.ReadFile(expected) error = %v", err)
 	}
 
 	if string(got) != string(want) {
 		t.Fatalf("generate() output mismatch\n\ngot:\n%s\n\nwant:\n%s", got, want)
 	}
+}
+
+// outputPath returns the configured output path, or falls back to the expected file path.
+func outputPath(outputFile, expectedFile string) string {
+	if outputFile != "" {
+		return outputFile
+	}
+
+	return expectedFile
 }
 
 // fixturePath resolves paths inside the package test fixtures.

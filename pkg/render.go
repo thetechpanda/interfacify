@@ -14,8 +14,12 @@ import (
 type signatureRenderer struct {
 	// outputPkg is the package name used for the generated file.
 	outputPkg string
+	// outputDir is the directory where the generated file will be written.
+	outputDir string
 	// pkg is the source package being rendered.
 	pkg *sourcePackage
+	// qualifyLocalTypes reports whether source-local types must be package-qualified.
+	qualifyLocalTypes bool
 	// usedImports collects imports referenced by rendered signatures.
 	usedImports map[string]string
 	// sourceImportAlias is the alias used when qualifying local source-package types.
@@ -118,12 +122,21 @@ func (renderer *signatureRenderer) renderFieldList(list *ast.FieldList) (string,
 
 // renderExpr renders one type expression and qualifies local types when needed.
 func (renderer *signatureRenderer) renderExpr(expr ast.Expr) (string, error) {
-	if renderer.outputPkg != renderer.pkg.name {
+	if renderer.qualifyLocalTypes {
 		if typeName, ok := encoders.FirstUnexportedLocalType(expr, renderer.pkg.typeSpecs); ok {
+			if renderer.outputPkg != renderer.pkg.name {
+				return "", fmt.Errorf(
+					"output package %q differs from source package %q for a method signature that uses unexported local type %q",
+					renderer.outputPkg,
+					renderer.pkg.name,
+					typeName,
+				)
+			}
+
 			return "", fmt.Errorf(
-				"output package %q differs from source package %q for a method signature that uses unexported local type %q",
-				renderer.outputPkg,
-				renderer.pkg.name,
+				"output file in %q is outside source package directory %q for a method signature that uses unexported local type %q",
+				renderer.outputDir,
+				renderer.pkg.dir,
 				typeName,
 			)
 		}
@@ -132,7 +145,7 @@ func (renderer *signatureRenderer) renderExpr(expr ast.Expr) (string, error) {
 	renderer.collectImports(expr)
 
 	renderExpr := expr
-	if renderer.outputPkg != renderer.pkg.name && encoders.ExprUsesLocalTypes(expr, renderer.pkg.typeSpecs) {
+	if renderer.qualifyLocalTypes && encoders.ExprUsesLocalTypes(expr, renderer.pkg.typeSpecs) {
 		renderExpr = encoders.QualifyLocalTypeRefs(expr, renderer.pkg.typeSpecs, renderer.ensureSourceImportAlias())
 	}
 
@@ -169,6 +182,11 @@ func (renderer *signatureRenderer) ensureSourceImportAlias() string {
 	renderer.usedImports[alias] = renderer.pkg.importPath
 	renderer.sourceImportAlias = alias
 	return alias
+}
+
+// outputMatchesSourcePackage reports whether the generated file belongs to the source package.
+func outputMatchesSourcePackage(outputDir, outputPkg string, pkg *sourcePackage) bool {
+	return outputPkg == pkg.name && outputDir == pkg.dir
 }
 
 // collectImports records package imports used by a rendered expression.

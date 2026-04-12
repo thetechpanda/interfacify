@@ -3,6 +3,7 @@ package interfacify
 import (
 	"fmt"
 	"go/format"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +34,11 @@ func Generate(cfg Config) ([]byte, error) {
 		return nil, err
 	}
 
+	outputDir, err := resolveOutputDir(cfg.OutputFile)
+	if err != nil {
+		return nil, err
+	}
+
 	targets, importPaths, err := parseTargets(cfg.StructsList)
 	if err != nil {
 		return nil, err
@@ -57,7 +63,7 @@ func Generate(cfg Config) ([]byte, error) {
 			return nil, fmt.Errorf("package %q not found", target.importPath)
 		}
 
-		block, blockImports, err := renderInterface(sourcePkg, target, cfg.OutputPkg, cfg.IncludeEmbedded, cfg.Prefix, cfg.Suffix)
+		block, blockImports, err := renderInterface(sourcePkg, target, outputDir, cfg.OutputPkg, cfg.IncludeEmbedded, cfg.Prefix, cfg.Suffix)
 		if err != nil {
 			return nil, err
 		}
@@ -99,6 +105,21 @@ func Generate(cfg Config) ([]byte, error) {
 	}
 
 	return format.Source([]byte(output.String()))
+}
+
+// resolveOutputDir resolves the directory where the generated file will be written.
+func resolveOutputDir(outputFile string) (string, error) {
+	outputDir := filepath.Dir(outputFile)
+	if outputDir == "" {
+		outputDir = "."
+	}
+
+	absDir, err := filepath.Abs(outputDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve output directory for %q: %w", outputFile, err)
+	}
+
+	return absDir, nil
 }
 
 // parseTargets parses the comma-separated struct list from the CLI.
@@ -145,6 +166,7 @@ func parseTargets(structsList string) ([]target, []string, error) {
 func renderInterface(
 	sourcePkg *sourcePackage,
 	target target,
+	outputDir string,
 	outputPkg string,
 	includeEmbedded bool,
 	prefix, suffix string,
@@ -156,9 +178,11 @@ func renderInterface(
 
 	methods := sourcePkg.collectMethods(target.typeName, includeEmbedded)
 	renderer := signatureRenderer{
-		outputPkg:   outputPkg,
-		pkg:         sourcePkg,
-		usedImports: map[string]string{},
+		outputPkg:         outputPkg,
+		outputDir:         outputDir,
+		pkg:               sourcePkg,
+		qualifyLocalTypes: !outputMatchesSourcePackage(outputDir, outputPkg, sourcePkg),
+		usedImports:       map[string]string{},
 	}
 	typeParams, err := renderer.renderTypeParams(typeSpec.TypeParams)
 	if err != nil {
