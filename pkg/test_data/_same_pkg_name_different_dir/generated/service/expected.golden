@@ -1,0 +1,13 @@
+package service
+
+import (
+	service "example.com/interfacify-samepkg/service"
+)
+
+// PrefixRunnerSuffix is an interface matching example.com/interfacify-samepkg/service.Runner
+//
+// Runner runs tasks.
+type PrefixRunnerSuffix interface {
+	// GetNested returns a source-package struct.
+	GetNested() service.RunnerNested
+}

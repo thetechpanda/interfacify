@@ -65,6 +65,8 @@ type embeddedPath struct {
 type sourcePackage struct {
 	// importPath is the fully-qualified import path for the package.
 	importPath string
+	// dir is the package directory on disk.
+	dir string
 	// name is the declared Go package name.
 	name string
 	// fset tracks token positions for the parsed files.
@@ -106,6 +108,7 @@ func loadSourcePackage(lookupRoots []lookupRoot, importPath string, packageCache
 
 	sourcePkg := &sourcePackage{
 		importPath:       info.ImportPath,
+		dir:              info.Dir,
 		name:             info.Name,
 		fset:             fset,
 		typeSpecs:        map[string]*ast.TypeSpec{},
