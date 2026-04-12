@@ -10,10 +10,10 @@ import (
 //
 // Runner runs tasks.
 type PrefixRunnerSuffix interface {
-	// Run handles a task.
-	Run(context.Context, string) error
-	// GetNested returns a nested struct from a foreign package
-	GetNested() nested.Nested
 	// GetLocal returns a local struct from the current package
 	GetLocal() service.Nested
+	// GetNested returns a nested struct from a foreign package
+	GetNested() nested.Nested
+	// Run handles a task.
+	Run(context.Context, string) error
 }

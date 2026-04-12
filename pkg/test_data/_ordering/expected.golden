@@ -1,0 +1,29 @@
+package service
+
+// PrefixContractSuffix is an interface matching example.com/interfacify-ordering/service.Contract
+//
+// Contract keeps interface methods intentionally unsorted.
+type PrefixContractSuffix interface {
+	// Alpha reports alpha behavior.
+	Alpha() bool
+	// Zulu reports zulu behavior.
+	Zulu() bool
+	// Bravo reports bravo behavior.
+	Bravo() bool
+	// Echo reports echo behavior.
+	Echo() bool
+}
+
+// PrefixWorkerSuffix is an interface matching example.com/interfacify-ordering/service.Worker
+//
+// Worker keeps concrete methods intentionally unsorted.
+type PrefixWorkerSuffix interface {
+	// Alpha reports alpha behavior.
+	Alpha() bool
+	// Zulu reports zulu behavior.
+	Zulu() bool
+	// Bravo reports bravo behavior.
+	Bravo() bool
+	// Echo reports echo behavior.
+	Echo() bool
+}
