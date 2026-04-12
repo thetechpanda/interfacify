@@ -1,0 +1,13 @@
+package service
+
+import (
+	clientv3 "example.com/interfacify-externalpkg/dep/v3"
+)
+
+// PrefixRunnerSuffix is an interface matching example.com/interfacify-externalpkg/source/service.Runner
+//
+// Runner runs tasks with an external client config.
+type PrefixRunnerSuffix interface {
+	// Run executes one task.
+	Run(clientv3.Config) error
+}
