@@ -122,6 +122,17 @@ func TestGenerate(t *testing.T) {
 			suffix:   "Suffix",
 		},
 		{
+			name:     "imported embedded struct and interface methods are promoted",
+			fixture:  "_foreign_embedded",
+			structs:  "example.com/interfacify-foreignembedded/service.Service",
+			pkg:      "service",
+			deep:     true,
+			output:   filepath.Join("service", "generated.go"),
+			expected: "expected.golden",
+			prefix:   "Prefix",
+			suffix:   "Suffix",
+		},
+		{
 			name:     "same package name in different directory still qualifies source-local types",
 			fixture:  "_same_pkg_name_different_dir",
 			structs:  "example.com/interfacify-samepkg/service.Runner",

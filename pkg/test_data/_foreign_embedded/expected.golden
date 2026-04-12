@@ -1,0 +1,18 @@
+package service
+
+import (
+	context "context"
+	dep "example.com/interfacify-foreignembedded/dep"
+)
+
+// PrefixServiceSuffix is an interface matching example.com/interfacify-foreignembedded/service.Service
+//
+// Service combines local and imported embedded behavior.
+type PrefixServiceSuffix interface {
+	// Local reports service-local behavior.
+	Local() bool
+	// Ping checks the dependency config.
+	Ping(dep.Config) error
+	// Run executes the dependency runner.
+	Run(context.Context) dep.Config
+}

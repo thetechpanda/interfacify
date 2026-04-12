@@ -14,7 +14,7 @@
 
 It resolves packages from one or more Go module or workspace paths, collects exported methods for each requested type, preserves doc comments when it can resolve them from source, and writes formatted Go code to `-ofile`.
 
-With `-deep=true`, exported methods promoted through embedded local structs or interfaces are included in the generated interface.
+With `-deep=true`, exported methods promoted through embedded structs or interfaces are included in the generated interface.
 
 ## Install
 
@@ -270,7 +270,7 @@ Even though `_imports` is listed first, the generator falls through to `_basic` 
 - `-structs` entries must be fully-qualified import paths followed by the type name.
 - Exported source-package types are qualified with the source package import when generating into a different package.
 - If a method signature refers to unexported local package types, the generated file must stay in the same package as the source.
-- Embedded method promotion only follows local embedded structs and interfaces.
+- Embedded method promotion follows embedded structs and interfaces that can be resolved from source or dependencies.
 
 ## Tests
 

@@ -18,22 +18,25 @@ type signatureRenderer struct {
 	outputDir string
 	// pkg is the source package being rendered.
 	pkg *sourcePackage
-	// qualifyLocalTypes reports whether source-local types must be package-qualified.
-	qualifyLocalTypes bool
 	// usedImports collects imports referenced by rendered signatures.
 	usedImports map[string]string
-	// sourceImportAlias is the alias used when qualifying local source-package types.
-	sourceImportAlias string
+	// packageAliases stores chosen aliases for packages qualified during rendering.
+	packageAliases map[string]string
 }
 
 // renderMethod renders one interface method signature.
 func (renderer *signatureRenderer) renderMethod(method methodDecl) (string, error) {
-	params, _, err := renderer.renderFieldList(method.params)
+	owner := method.owner
+	if owner == nil {
+		owner = renderer.pkg
+	}
+
+	params, _, err := renderer.renderFieldList(method.params, owner)
 	if err != nil {
 		return "", err
 	}
 
-	results, resultCount, err := renderer.renderFieldList(method.results)
+	results, resultCount, err := renderer.renderFieldList(method.results, owner)
 	if err != nil {
 		return "", err
 	}
@@ -60,14 +63,14 @@ func (renderer *signatureRenderer) renderMethod(method methodDecl) (string, erro
 }
 
 // renderTypeParams renders a generic type parameter list for one type declaration.
-func (renderer *signatureRenderer) renderTypeParams(list *ast.FieldList) (string, error) {
+func (renderer *signatureRenderer) renderTypeParams(list *ast.FieldList, owner *sourcePackage) (string, error) {
 	if list == nil || len(list.List) == 0 {
 		return "", nil
 	}
 
 	parts := make([]string, 0, len(list.List))
 	for _, field := range list.List {
-		constraint, err := renderer.renderExpr(field.Type)
+		constraint, err := renderer.renderExpr(field.Type, owner)
 		if err != nil {
 			return "", err
 		}
@@ -93,7 +96,7 @@ func (renderer *signatureRenderer) renderTypeParams(list *ast.FieldList) (string
 }
 
 // renderFieldList renders an AST field list into a comma-separated type list.
-func (renderer *signatureRenderer) renderFieldList(list *ast.FieldList) (string, int, error) {
+func (renderer *signatureRenderer) renderFieldList(list *ast.FieldList, owner *sourcePackage) (string, int, error) {
 	if list == nil || len(list.List) == 0 {
 		return "", 0, nil
 	}
@@ -101,7 +104,7 @@ func (renderer *signatureRenderer) renderFieldList(list *ast.FieldList) (string,
 	parts := make([]string, 0, len(list.List))
 	count := 0
 	for _, field := range list.List {
-		fieldType, err := renderer.renderExpr(field.Type)
+		fieldType, err := renderer.renderExpr(field.Type, owner)
 		if err != nil {
 			return "", 0, err
 		}
@@ -121,66 +124,76 @@ func (renderer *signatureRenderer) renderFieldList(list *ast.FieldList) (string,
 }
 
 // renderExpr renders one type expression and qualifies local types when needed.
-func (renderer *signatureRenderer) renderExpr(expr ast.Expr) (string, error) {
-	if renderer.qualifyLocalTypes {
-		if typeName, ok := encoders.FirstUnexportedLocalType(expr, renderer.pkg.typeSpecs); ok {
-			if renderer.outputPkg != renderer.pkg.name {
+func (renderer *signatureRenderer) renderExpr(expr ast.Expr, owner *sourcePackage) (string, error) {
+	qualifyLocalTypes := !outputMatchesSourcePackage(renderer.outputDir, renderer.outputPkg, owner)
+	if qualifyLocalTypes {
+		if typeName, ok := encoders.FirstUnexportedLocalType(expr, owner.typeSpecs); ok {
+			switch {
+			case owner.importPath != renderer.pkg.importPath:
+				return "", fmt.Errorf(
+					"method signature from imported package %q uses unexported local type %q",
+					owner.importPath,
+					typeName,
+				)
+			case renderer.outputPkg != owner.name:
 				return "", fmt.Errorf(
 					"output package %q differs from source package %q for a method signature that uses unexported local type %q",
 					renderer.outputPkg,
-					renderer.pkg.name,
+					owner.name,
+					typeName,
+				)
+			default:
+				return "", fmt.Errorf(
+					"output file in %q is outside source package directory %q for a method signature that uses unexported local type %q",
+					renderer.outputDir,
+					owner.dir,
 					typeName,
 				)
 			}
-
-			return "", fmt.Errorf(
-				"output file in %q is outside source package directory %q for a method signature that uses unexported local type %q",
-				renderer.outputDir,
-				renderer.pkg.dir,
-				typeName,
-			)
 		}
 	}
 
-	renderer.collectImports(expr)
+	if err := renderer.collectImports(expr, owner); err != nil {
+		return "", err
+	}
 
 	renderExpr := expr
-	if renderer.qualifyLocalTypes && encoders.ExprUsesLocalTypes(expr, renderer.pkg.typeSpecs) {
-		renderExpr = encoders.QualifyLocalTypeRefs(expr, renderer.pkg.typeSpecs, renderer.ensureSourceImportAlias())
+	if qualifyLocalTypes && encoders.ExprUsesLocalTypes(expr, owner.typeSpecs) {
+		renderExpr = encoders.QualifyLocalTypeRefs(expr, owner.typeSpecs, renderer.ensurePackageImportAlias(owner))
 	}
 
 	var output strings.Builder
-	if err := printer.Fprint(&output, renderer.pkg.fset, renderExpr); err != nil {
+	if err := printer.Fprint(&output, owner.fset, renderExpr); err != nil {
 		return "", err
 	}
 
 	return output.String(), nil
 }
 
-// ensureSourceImportAlias returns the alias used for the source package import.
-func (renderer *signatureRenderer) ensureSourceImportAlias() string {
-	if renderer.sourceImportAlias != "" {
-		return renderer.sourceImportAlias
+// ensurePackageImportAlias returns the alias used for one qualified package import.
+func (renderer *signatureRenderer) ensurePackageImportAlias(pkg *sourcePackage) string {
+	if alias, ok := renderer.packageAliases[pkg.importPath]; ok {
+		return alias
 	}
 
-	preferred := renderer.pkg.name
+	preferred := pkg.name
 	if preferred == "" {
-		preferred = decoders.DefaultImportName(renderer.pkg.importPath)
+		preferred = decoders.DefaultImportName(pkg.importPath)
 	}
 
 	alias := preferred
-	if existing, ok := renderer.usedImports[alias]; ok && existing != renderer.pkg.importPath {
+	if existing, ok := renderer.usedImports[alias]; ok && existing != pkg.importPath {
 		for i := 1; ; i++ {
 			candidate := fmt.Sprintf("%s%d", preferred, i)
-			if existing, ok := renderer.usedImports[candidate]; !ok || existing == renderer.pkg.importPath {
+			if existing, ok := renderer.usedImports[candidate]; !ok || existing == pkg.importPath {
 				alias = candidate
 				break
 			}
 		}
 	}
 
-	renderer.usedImports[alias] = renderer.pkg.importPath
-	renderer.sourceImportAlias = alias
+	renderer.usedImports[alias] = pkg.importPath
+	renderer.packageAliases[pkg.importPath] = alias
 	return alias
 }
 
@@ -190,8 +203,14 @@ func outputMatchesSourcePackage(outputDir, outputPkg string, pkg *sourcePackage)
 }
 
 // collectImports records package imports used by a rendered expression.
-func (renderer *signatureRenderer) collectImports(expr ast.Expr) {
+
+func (renderer *signatureRenderer) collectImports(expr ast.Expr, owner *sourcePackage) error {
+	var collectErr error
 	ast.Inspect(expr, func(node ast.Node) bool {
+		if collectErr != nil {
+			return false
+		}
+
 		selector, ok := node.(*ast.SelectorExpr)
 		if !ok {
 			return true
@@ -202,11 +221,18 @@ func (renderer *signatureRenderer) collectImports(expr ast.Expr) {
 			return true
 		}
 
-		importPath := renderer.pkg.imports[ident.Name]
+		importPath := owner.imports[ident.Name]
 		if importPath != "" {
+			if existing, ok := renderer.usedImports[ident.Name]; ok && existing != importPath {
+				collectErr = fmt.Errorf("import name %q is used by both %q and %q", ident.Name, existing, importPath)
+				return false
+			}
+
 			renderer.usedImports[ident.Name] = importPath
 		}
 
 		return true
 	})
+
+	return collectErr
 }
