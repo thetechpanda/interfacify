@@ -114,6 +114,16 @@ func TestGenerate(t *testing.T) {
 			suffix:   "Suffix",
 		},
 		{
+			name:     "external import keeps declared package name",
+			fixture:  "_external_pkg_name/source",
+			structs:  "example.com/interfacify-externalpkg/source/service.Runner",
+			pkg:      "service",
+			deep:     true,
+			expected: "expected.golden",
+			prefix:   "Prefix",
+			suffix:   "Suffix",
+		},
+		{
 			name:     "ambiguous promoted methods are omitted and shallow methods win",
 			fixture:  "_embedded_conflicts",
 			structs:  "example.com/interfacify-embeddedconflicts/service.Runner",

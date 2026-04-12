@@ -1,12 +1,14 @@
 package interfacify
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/build"
 	"go/doc"
 	"go/parser"
 	"go/token"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -318,6 +320,11 @@ func resolveImportName(lookupRoot lookupRoot, importPath string, spec *ast.Impor
 		return info.Name, nil
 	}
 
+	info, err = goListPackageInfo(lookupRoot.Path, importPath)
+	if err == nil {
+		return info.Name, nil
+	}
+
 	stdlibPkg, buildErr := build.Default.Import(importPath, "", build.FindOnly)
 	if buildErr == nil {
 		info, infoErr := loadPackageInfo(stdlibPkg.Dir, importPath)
@@ -327,6 +334,34 @@ func resolveImportName(lookupRoot lookupRoot, importPath string, spec *ast.Impor
 	}
 
 	return decoders.DefaultImportName(importPath), nil
+}
+
+// goListPackageInfo resolves package metadata through the active Go module or workspace.
+func goListPackageInfo(workDir, importPath string) (packageInfo, error) {
+	cmd := exec.Command("go", "list", "-find", "-json", importPath)
+	cmd.Dir = workDir
+
+	output, err := cmd.Output()
+	if err != nil {
+		return packageInfo{}, err
+	}
+
+	var listed struct {
+		Dir  string
+		Name string
+	}
+	if err := json.Unmarshal(output, &listed); err != nil {
+		return packageInfo{}, fmt.Errorf("decode go list output for %q: %w", importPath, err)
+	}
+	if listed.Name == "" {
+		return packageInfo{}, fmt.Errorf("go list returned empty package name for %q", importPath)
+	}
+
+	return packageInfo{
+		Dir:        listed.Dir,
+		ImportPath: importPath,
+		Name:       listed.Name,
+	}, nil
 }
 
 // receiverName returns the local receiver type name for a method receiver expression.
