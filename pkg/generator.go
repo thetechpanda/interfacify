@@ -33,6 +33,7 @@ func Generate(cfg Config) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	loader := newPackageLoader(lookupRoots)
 
 	outputDir, err := resolveOutputDir(cfg.OutputFile)
 	if err != nil {
@@ -44,23 +45,18 @@ func Generate(cfg Config) ([]byte, error) {
 		return nil, err
 	}
 
-	packageCache := map[packageCacheKey]packageInfo{}
-	loaded := make(map[string]*sourcePackage, len(importPaths))
 	for _, importPath := range importPaths {
-		sourcePkg, err := loadSourcePackage(lookupRoots, importPath, packageCache)
-		if err != nil {
+		if _, err := loader.load(importPath); err != nil {
 			return nil, err
 		}
-
-		loaded[importPath] = sourcePkg
 	}
 
 	blocks := make([]string, 0, len(targets))
 	imports := map[string]string{}
 	for _, target := range targets {
-		sourcePkg := loaded[target.importPath]
-		if sourcePkg == nil {
-			return nil, fmt.Errorf("package %q not found", target.importPath)
+		sourcePkg, err := loader.load(target.importPath)
+		if err != nil {
+			return nil, err
 		}
 
 		block, blockImports, err := renderInterface(sourcePkg, target, outputDir, cfg.OutputPkg, cfg.IncludeEmbedded, cfg.Prefix, cfg.Suffix)
@@ -176,15 +172,18 @@ func renderInterface(
 		return "", nil, fmt.Errorf("type %q not found in package %q", target.typeName, target.importPath)
 	}
 
-	methods := sourcePkg.collectMethods(target.typeName, includeEmbedded)
-	renderer := signatureRenderer{
-		outputPkg:         outputPkg,
-		outputDir:         outputDir,
-		pkg:               sourcePkg,
-		qualifyLocalTypes: !outputMatchesSourcePackage(outputDir, outputPkg, sourcePkg),
-		usedImports:       map[string]string{},
+	methods, err := sourcePkg.collectMethods(target.typeName, includeEmbedded)
+	if err != nil {
+		return "", nil, fmt.Errorf("collect methods for %s: %w", target.typeName, err)
 	}
-	typeParams, err := renderer.renderTypeParams(typeSpec.TypeParams)
+	renderer := signatureRenderer{
+		outputPkg:      outputPkg,
+		outputDir:      outputDir,
+		pkg:            sourcePkg,
+		usedImports:    map[string]string{},
+		packageAliases: map[string]string{},
+	}
+	typeParams, err := renderer.renderTypeParams(typeSpec.TypeParams, sourcePkg)
 	if err != nil {
 		return "", nil, fmt.Errorf("rendering type parameters for %s: %w", target.typeName, err)
 	}

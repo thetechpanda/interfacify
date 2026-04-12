@@ -29,6 +29,16 @@ type lookupRoot = decoders.LookupRoot
 // moduleRoot stores one resolved module root available from a lookup path.
 type moduleRoot = decoders.ModuleRoot
 
+// packageLoader resolves and caches parsed packages across source and dependencies.
+type packageLoader struct {
+	// lookupRoots are the configured lookup environments.
+	lookupRoots []lookupRoot
+	// packageCache caches package metadata by lookup root and import path.
+	packageCache map[packageCacheKey]packageInfo
+	// loaded caches fully parsed source packages by import path.
+	loaded map[string]*sourcePackage
+}
+
 // packageInfo stores the source metadata needed to parse one package.
 type packageInfo struct {
 	// Dir is the package directory on disk.
@@ -51,18 +61,30 @@ type methodDecl struct {
 	params *ast.FieldList
 	// results contains the parsed result list.
 	results *ast.FieldList
+	// owner is the package that declares the method signature.
+	owner *sourcePackage
+}
+
+// typeRef identifies one named type in one parsed package.
+type typeRef struct {
+	// pkg is the package that declares the type.
+	pkg *sourcePackage
+	// typeName is the unqualified type name in pkg.
+	typeName string
 }
 
 // embeddedPath tracks one embedded type reached through one promotion path.
 type embeddedPath struct {
-	// typeName is the embedded local type name reached at the current depth.
-	typeName string
-	// visiting tracks the local types already traversed on this path.
+	// ref is the embedded type reached at the current depth.
+	ref typeRef
+	// visiting tracks the types already traversed on this path.
 	visiting map[string]struct{}
 }
 
 // sourcePackage caches the parsed state for one source package.
 type sourcePackage struct {
+	// loader resolves additional packages referenced by this package.
+	loader *packageLoader
 	// importPath is the fully-qualified import path for the package.
 	importPath string
 	// dir is the package directory on disk.
@@ -83,6 +105,40 @@ type sourcePackage struct {
 	methodDocsByName map[string]string
 	// imports maps in-package import names to their import paths.
 	imports map[string]string
+}
+
+// newPackageLoader creates a package loader for one generation run.
+func newPackageLoader(lookupRoots []lookupRoot) *packageLoader {
+	return &packageLoader{
+		lookupRoots:  lookupRoots,
+		packageCache: map[packageCacheKey]packageInfo{},
+		loaded:       map[string]*sourcePackage{},
+	}
+}
+
+// load resolves and parses one package, reusing cached results.
+func (loader *packageLoader) load(importPath string) (*sourcePackage, error) {
+	if sourcePkg, ok := loader.loaded[importPath]; ok {
+		return sourcePkg, nil
+	}
+
+	sourcePkg, err := loadSourcePackage(loader.lookupRoots, importPath, loader.packageCache)
+	if err != nil {
+		return nil, err
+	}
+
+	sourcePkg.loader = loader
+	loader.loaded[importPath] = sourcePkg
+	return sourcePkg, nil
+}
+
+// key returns a stable identifier for one named type reference.
+func (ref typeRef) key() string {
+	if ref.pkg == nil {
+		return ref.typeName
+	}
+
+	return ref.pkg.importPath + "." + ref.typeName
 }
 
 // loadSourcePackage loads and indexes one source package.
@@ -204,6 +260,7 @@ func loadSourcePackage(lookupRoots []lookupRoot, importPath string, packageCache
 								doc:     methodDoc,
 								params:  funcType.Params,
 								results: funcType.Results,
+								owner:   sourcePkg,
 							}
 							sourcePkg.interfaceMethods[typeSpec.Name.Name] = append(sourcePkg.interfaceMethods[typeSpec.Name.Name], method)
 							if methodDoc != "" && sourcePkg.methodDocsByName[name.Name] == "" {
@@ -229,6 +286,7 @@ func loadSourcePackage(lookupRoots []lookupRoot, importPath string, packageCache
 					doc:     methodDoc,
 					params:  decl.Type.Params,
 					results: decl.Type.Results,
+					owner:   sourcePkg,
 				})
 				if methodDoc != "" && sourcePkg.methodDocsByName[decl.Name.Name] == "" {
 					sourcePkg.methodDocsByName[decl.Name.Name] = methodDoc
@@ -383,116 +441,182 @@ func receiverName(expr ast.Expr) string {
 	}
 }
 
-// localTypeName returns the local named type referenced by an embedded field.
-func localTypeName(expr ast.Expr) (string, bool) {
+// typeRefForExpr resolves one embedded named type expression into a package-qualified reference.
+func (pkg *sourcePackage) typeRefForExpr(expr ast.Expr) (typeRef, bool, error) {
 	switch expr := expr.(type) {
 	case *ast.Ident:
-		return expr.Name, true
+		return typeRef{pkg: pkg, typeName: expr.Name}, true, nil
 	case *ast.StarExpr:
-		return localTypeName(expr.X)
+		return pkg.typeRefForExpr(expr.X)
 	case *ast.IndexExpr:
-		return localTypeName(expr.X)
+		return pkg.typeRefForExpr(expr.X)
 	case *ast.IndexListExpr:
-		return localTypeName(expr.X)
+		return pkg.typeRefForExpr(expr.X)
+	case *ast.SelectorExpr:
+		ident, ok := expr.X.(*ast.Ident)
+		if !ok {
+			return typeRef{}, false, nil
+		}
+
+		importPath := pkg.imports[ident.Name]
+		if importPath == "" {
+			return typeRef{}, false, nil
+		}
+		if pkg.loader == nil {
+			return typeRef{}, false, fmt.Errorf("package loader unavailable while resolving %q", importPath)
+		}
+
+		foreignPkg, err := pkg.loader.load(importPath)
+		if err != nil {
+			return typeRef{}, false, err
+		}
+
+		return typeRef{pkg: foreignPkg, typeName: expr.Sel.Name}, true, nil
 	default:
-		return "", false
+		return typeRef{}, false, nil
 	}
+}
+
+// embeddedTypeRefs resolves the embedded named types declared in one field list.
+func (pkg *sourcePackage) embeddedTypeRefs(fields *ast.FieldList) ([]typeRef, error) {
+	if fields == nil {
+		return nil, nil
+	}
+
+	refs := make([]typeRef, 0, len(fields.List))
+	for _, field := range fields.List {
+		if len(field.Names) != 0 {
+			continue
+		}
+
+		ref, ok, err := pkg.typeRefForExpr(field.Type)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			continue
+		}
+
+		refs = append(refs, ref)
+	}
+
+	return refs, nil
 }
 
 // collectMethods collects declared methods and optionally embedded methods for a type.
-func (pkg *sourcePackage) collectMethods(typeName string, includeEmbedded bool) []methodDecl {
+func (pkg *sourcePackage) collectMethods(typeName string, includeEmbedded bool) ([]methodDecl, error) {
 	typeSpec := pkg.typeSpecs[typeName]
 	if typeSpec == nil {
-		return nil
+		return nil, nil
 	}
 
+	ref := typeRef{pkg: pkg, typeName: typeName}
 	if _, ok := typeSpec.Type.(*ast.InterfaceType); ok {
-		return pkg.collectInterfaceMethods(typeName, includeEmbedded)
+		return pkg.collectInterfaceMethods(ref, includeEmbedded)
 	}
 
-	return pkg.collectConcreteMethods(typeName, includeEmbedded)
+	return pkg.collectConcreteMethods(ref, includeEmbedded)
 }
 
 // collectConcreteMethods collects direct and promoted methods for one concrete type.
-func (pkg *sourcePackage) collectConcreteMethods(typeName string, includeEmbedded bool) []methodDecl {
-	methods := make([]methodDecl, 0, len(pkg.methods[typeName]))
+func (pkg *sourcePackage) collectConcreteMethods(ref typeRef, includeEmbedded bool) ([]methodDecl, error) {
+	methods := make([]methodDecl, 0, len(ref.pkg.methods[ref.typeName]))
 	seen := map[string]struct{}{}
 
-	for _, method := range pkg.methods[typeName] {
+	for _, method := range ref.pkg.methods[ref.typeName] {
 		pkg.appendMethod(method, &methods, seen)
 	}
 
 	if !includeEmbedded {
-		return methods
+		return methods, nil
 	}
 
-	typeSpec := pkg.typeSpecs[typeName]
+	typeSpec := ref.pkg.typeSpecs[ref.typeName]
 	structType, ok := typeSpec.Type.(*ast.StructType)
 	if !ok {
-		return methods
+		return methods, nil
 	}
 
-	pkg.appendPromotedMethods(typeName, structType, &methods, seen)
-	return methods
+	if err := pkg.appendPromotedMethods(ref, structType, &methods, seen); err != nil {
+		return nil, err
+	}
+
+	return methods, nil
 }
 
 // collectInterfaceMethods collects direct and optionally embedded interface methods.
-func (pkg *sourcePackage) collectInterfaceMethods(typeName string, includeEmbedded bool) []methodDecl {
-	methods := make([]methodDecl, 0, len(pkg.interfaceMethods[typeName]))
+func (pkg *sourcePackage) collectInterfaceMethods(ref typeRef, includeEmbedded bool) ([]methodDecl, error) {
+	methods := make([]methodDecl, 0, len(ref.pkg.interfaceMethods[ref.typeName]))
 	seen := map[string]struct{}{}
-	pkg.appendInterfaceMethods(typeName, includeEmbedded, &methods, seen, map[string]struct{}{})
-	return methods
+	if err := pkg.appendInterfaceMethods(ref, includeEmbedded, &methods, seen, map[string]struct{}{}); err != nil {
+		return nil, err
+	}
+
+	return methods, nil
 }
 
 // appendInterfaceMethods appends the direct and embedded methods of one interface type.
 func (pkg *sourcePackage) appendInterfaceMethods(
-	typeName string,
+	ref typeRef,
 	includeEmbedded bool,
 	methods *[]methodDecl,
 	seen map[string]struct{},
 	visiting map[string]struct{},
-) {
-	if _, ok := visiting[typeName]; ok {
-		return
+) error {
+	if _, ok := visiting[ref.key()]; ok {
+		return nil
 	}
-	visiting[typeName] = struct{}{}
-	defer delete(visiting, typeName)
+	visiting[ref.key()] = struct{}{}
+	defer delete(visiting, ref.key())
 
-	for _, method := range pkg.interfaceMethods[typeName] {
+	for _, method := range ref.pkg.interfaceMethods[ref.typeName] {
 		pkg.appendMethod(method, methods, seen)
 	}
 
 	if !includeEmbedded {
-		return
+		return nil
 	}
 
-	typeSpec := pkg.typeSpecs[typeName]
+	typeSpec := ref.pkg.typeSpecs[ref.typeName]
 	if typeSpec == nil {
-		return
+		return nil
 	}
 
 	iface, ok := typeSpec.Type.(*ast.InterfaceType)
 	if !ok {
-		return
+		return nil
 	}
 
-	for _, embeddedType := range localEmbeddedTypes(iface.Methods) {
-		pkg.appendInterfaceMethods(embeddedType, true, methods, seen, visiting)
+	embeddedRefs, err := ref.pkg.embeddedTypeRefs(iface.Methods)
+	if err != nil {
+		return err
 	}
+	for _, embeddedRef := range embeddedRefs {
+		if err := pkg.appendInterfaceMethods(embeddedRef, true, methods, seen, visiting); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // appendPromotedMethods appends promoted methods using struct embedding depth rules.
 func (pkg *sourcePackage) appendPromotedMethods(
-	rootTypeName string,
+	rootRef typeRef,
 	structType *ast.StructType,
 	methods *[]methodDecl,
 	seen map[string]struct{},
-) {
-	current := make([]embeddedPath, 0, len(structType.Fields.List))
-	for _, embeddedType := range localEmbeddedTypes(structType.Fields) {
+) error {
+	embeddedRefs, err := rootRef.pkg.embeddedTypeRefs(structType.Fields)
+	if err != nil {
+		return err
+	}
+
+	current := make([]embeddedPath, 0, len(embeddedRefs))
+	for _, embeddedRef := range embeddedRefs {
 		current = append(current, embeddedPath{
-			typeName: embeddedType,
-			visiting: map[string]struct{}{rootTypeName: {}, embeddedType: {}},
+			ref:      embeddedRef,
+			visiting: map[string]struct{}{rootRef.key(): {}, embeddedRef.key(): {}},
 		})
 	}
 
@@ -503,7 +627,12 @@ func (pkg *sourcePackage) appendPromotedMethods(
 		next := make([]embeddedPath, 0, len(current))
 
 		for _, path := range current {
-			for _, method := range pkg.methodsAtEmbeddingDepth(path.typeName) {
+			pathMethods, err := path.ref.pkg.methodsAtEmbeddingDepth(path.ref)
+			if err != nil {
+				return err
+			}
+
+			for _, method := range pathMethods {
 				if _, ok := seen[method.name]; ok {
 					continue
 				}
@@ -516,14 +645,18 @@ func (pkg *sourcePackage) appendPromotedMethods(
 				levelMethods[method.name] = append(levelMethods[method.name], method)
 			}
 
-			for _, embeddedType := range pkg.nextEmbeddedLocalTypes(path.typeName) {
-				if _, ok := path.visiting[embeddedType]; ok {
+			nextRefs, err := path.ref.pkg.nextEmbeddedTypeRefs(path.ref)
+			if err != nil {
+				return err
+			}
+			for _, embeddedRef := range nextRefs {
+				if _, ok := path.visiting[embeddedRef.key()]; ok {
 					continue
 				}
 
 				next = append(next, embeddedPath{
-					typeName: embeddedType,
-					visiting: extendVisitedTypes(path.visiting, embeddedType),
+					ref:      embeddedRef,
+					visiting: extendVisitedTypes(path.visiting, embeddedRef.key()),
 				})
 			}
 		}
@@ -540,69 +673,48 @@ func (pkg *sourcePackage) appendPromotedMethods(
 
 		current = next
 	}
+
+	return nil
 }
 
 // methodsAtEmbeddingDepth returns the methods contributed by one embedded type at its depth.
-func (pkg *sourcePackage) methodsAtEmbeddingDepth(typeName string) []methodDecl {
-	typeSpec := pkg.typeSpecs[typeName]
+func (pkg *sourcePackage) methodsAtEmbeddingDepth(ref typeRef) ([]methodDecl, error) {
+	typeSpec := ref.pkg.typeSpecs[ref.typeName]
 	if typeSpec == nil {
-		return nil
+		return nil, nil
 	}
 
 	if _, ok := typeSpec.Type.(*ast.InterfaceType); ok {
-		return pkg.collectInterfaceMethods(typeName, true)
+		return pkg.collectInterfaceMethods(ref, true)
 	}
 
-	methods := make([]methodDecl, 0, len(pkg.methods[typeName]))
-	methods = append(methods, pkg.methods[typeName]...)
-	return methods
+	methods := make([]methodDecl, 0, len(ref.pkg.methods[ref.typeName]))
+	methods = append(methods, ref.pkg.methods[ref.typeName]...)
+	return methods, nil
 }
 
-// nextEmbeddedLocalTypes returns the local embedded types that sit one level deeper.
-func (pkg *sourcePackage) nextEmbeddedLocalTypes(typeName string) []string {
-	typeSpec := pkg.typeSpecs[typeName]
+// nextEmbeddedTypeRefs returns the embedded types that sit one level deeper.
+func (pkg *sourcePackage) nextEmbeddedTypeRefs(ref typeRef) ([]typeRef, error) {
+	typeSpec := ref.pkg.typeSpecs[ref.typeName]
 	if typeSpec == nil {
-		return nil
+		return nil, nil
 	}
 
 	structType, ok := typeSpec.Type.(*ast.StructType)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
-	return localEmbeddedTypes(structType.Fields)
-}
-
-// localEmbeddedTypes returns the local embedded type names from one field list.
-func localEmbeddedTypes(fields *ast.FieldList) []string {
-	if fields == nil {
-		return nil
-	}
-
-	types := make([]string, 0, len(fields.List))
-	for _, field := range fields.List {
-		if len(field.Names) != 0 {
-			continue
-		}
-
-		embeddedType, ok := localTypeName(field.Type)
-		if !ok {
-			continue
-		}
-
-		types = append(types, embeddedType)
-	}
-
-	return types
+	return ref.pkg.embeddedTypeRefs(structType.Fields)
 }
 
 // extendVisitedTypes clones one visited set and adds the next type.
-func extendVisitedTypes(visiting map[string]struct{}, typeName string) map[string]struct{} {
+func extendVisitedTypes(visiting map[string]struct{}, key string) map[string]struct{} {
 	clone := make(map[string]struct{}, len(visiting)+1)
 	for name := range visiting {
 		clone[name] = struct{}{}
 	}
-	clone[typeName] = struct{}{}
+	clone[key] = struct{}{}
 	return clone
 }
 
@@ -621,5 +733,10 @@ func (pkg *sourcePackage) docForMethod(method methodDecl) string {
 		return method.doc
 	}
 
-	return pkg.methodDocsByName[method.name]
+	owner := method.owner
+	if owner == nil {
+		owner = pkg
+	}
+
+	return owner.methodDocsByName[method.name]
 }
